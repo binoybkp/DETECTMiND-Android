@@ -14,6 +14,19 @@ val localProperties = Properties().apply {
     if (f.exists()) load(f.inputStream())
 }
 
+// Read version from version.properties and auto-increment versionCode on every build
+val versionProps = Properties().apply {
+    val f = rootProject.file("version.properties")
+    if (f.exists()) load(f.inputStream())
+}
+val appVersionCode = (versionProps["VERSION_CODE"] as? String)?.toIntOrNull() ?: 1
+val appVersionName = (versionProps["VERSION_NAME"] as? String) ?: "1.0.0"
+
+// Increment versionCode and write back so every build gets a unique code
+val nextVersionCode = appVersionCode + 1
+versionProps["VERSION_CODE"] = nextVersionCode.toString()
+rootProject.file("version.properties").writer().use { versionProps.store(it, null) }
+
 android {
     namespace = "com.research.detectmind"
     compileSdk = 35
@@ -22,11 +35,13 @@ android {
         applicationId = "com.research.detectmind"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         buildConfigField("String", "SUPABASE_URL", "\"${localProperties["SUPABASE_URL"]}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${localProperties["SUPABASE_ANON_KEY"]}\"")
+        buildConfigField("String", "APP_VERSION_NAME", "\"$appVersionName\"")
+        buildConfigField("String", "APP_VERSION_CODE", "\"$appVersionCode\"")
     }
 
     buildTypes {

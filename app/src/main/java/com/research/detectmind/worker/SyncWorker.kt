@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
+import com.research.detectmind.BuildConfig
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.datastore.core.DataStore
@@ -191,8 +192,10 @@ class SyncWorker @AssistedInject constructor(
         put("manufacturer", Build.MANUFACTURER)
         put("model", Build.MODEL)
         put("android_version", Build.VERSION.RELEASE)
-        put("sdk_int", Build.VERSION.SDK_INT)
+        put("sdk_int", Build.VERSION.SDK_INT.toString())
         put("android_id", Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID))
+        put("app_version", BuildConfig.APP_VERSION_NAME)
+        put("app_version_code", BuildConfig.APP_VERSION_CODE)
     }
 
     private fun buildPermissionsJson(): JsonElement = buildJsonObject {
