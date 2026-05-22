@@ -199,15 +199,13 @@ class SyncWorker @AssistedInject constructor(
     }
 
     private fun buildPermissionsJson(): JsonElement = buildJsonObject {
-        put("location", hasPermission(Manifest.permission.ACCESS_FINE_LOCATION) ||
-                hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION))
+        put("location", hasPermission(Manifest.permission.ACCESS_FINE_LOCATION))
         put("background_location", hasPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
         put("notifications", isNotificationListenerEnabled())
         put("usage_stats", isUsageStatsEnabled())
         put("call_log", hasPermission(Manifest.permission.READ_CALL_LOG))
         put("sms", hasPermission(Manifest.permission.READ_SMS))
         put("accessibility", isAccessibilityServiceEnabled())
-        put("phone_state", hasPermission(Manifest.permission.READ_PHONE_STATE))
     }
 
     private fun hasPermission(permission: String): Boolean =

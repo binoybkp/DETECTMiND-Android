@@ -11,7 +11,8 @@ data class StudyDto(
     val description: String? = null,
     @SerialName("app_description") val appDescription: String? = null,
     val status: String,
-    @SerialName("sync_interval_minutes") val syncIntervalMinutes: Int = 30
+    @SerialName("sync_interval_minutes") val syncIntervalMinutes: Int = 30,
+    val config: JsonElement? = null
 )
 
 @Serializable

@@ -3,6 +3,10 @@ package com.research.detectmind.ui.screens.settings
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import com.research.detectmind.ui.components.PermSheet
+import com.research.detectmind.ui.components.PermSheetKind
+import com.research.detectmind.ui.components.PermissionBottomSheet
+import com.research.detectmind.ui.components.permSheetForKind
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -43,6 +47,11 @@ fun SettingsScreen(
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current
     var showWithdrawDialog by remember { mutableStateOf(false) }
+    var pendingSheet by remember { mutableStateOf<PermSheet?>(null) }
+
+    pendingSheet?.let { sheet ->
+        PermissionBottomSheet(sheet = sheet, onDismiss = { pendingSheet = null })
+    }
 
     LaunchedEffect(Unit) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -210,20 +219,32 @@ fun SettingsScreen(
                             PermissionRow(
                                 perm = perm,
                                 onOpenSettings = {
-                                    val intent = when (perm.kind) {
-                                        SettingsPermissionKind.USAGE_STATS ->
-                                            Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-                                        SettingsPermissionKind.NOTIFICATION_LISTENER ->
-                                            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                                        SettingsPermissionKind.ACCESSIBILITY ->
-                                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                                        SettingsPermissionKind.RUNTIME ->
-                                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                                data = Uri.fromParts("package", context.packageName, null)
-                                            }
+                                    val sheetKind = when (perm.kind) {
+                                        SettingsPermissionKind.USAGE_STATS -> PermSheetKind.USAGE_STATS
+                                        SettingsPermissionKind.NOTIFICATION_LISTENER -> PermSheetKind.NOTIFICATION_LISTENER
+                                        SettingsPermissionKind.ACCESSIBILITY -> PermSheetKind.ACCESSIBILITY
+                                        SettingsPermissionKind.BACKGROUND_LOCATION -> PermSheetKind.BACKGROUND_LOCATION
+                                        SettingsPermissionKind.RUNTIME -> null
                                     }
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
+                                    if (state.guidedPermissions && sheetKind != null) {
+                                        pendingSheet = permSheetForKind(sheetKind, perm.label, context.packageName)
+                                    } else {
+                                        val intent = when (perm.kind) {
+                                            SettingsPermissionKind.USAGE_STATS ->
+                                                Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                                            SettingsPermissionKind.NOTIFICATION_LISTENER ->
+                                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                            SettingsPermissionKind.ACCESSIBILITY ->
+                                                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                            SettingsPermissionKind.BACKGROUND_LOCATION,
+                                            SettingsPermissionKind.RUNTIME ->
+                                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                    data = Uri.fromParts("package", context.packageName, null)
+                                                }
+                                        }
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        context.startActivity(intent)
+                                    }
                                 }
                             )
                             if (index < state.sensorPermissions.lastIndex) {

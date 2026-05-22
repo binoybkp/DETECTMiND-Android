@@ -9,7 +9,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -23,6 +22,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.research.detectmind.ui.components.PermSheet
+import com.research.detectmind.ui.components.PermSheetKind
+import com.research.detectmind.ui.components.PermissionBottomSheet
+import com.research.detectmind.ui.components.permSheetForKind
 import com.research.detectmind.ui.screens.home.HomeScreen
 import com.research.detectmind.ui.screens.home.HomeViewModel
 import com.research.detectmind.ui.screens.home.HomeSensorPermKind
@@ -33,28 +36,10 @@ import com.research.detectmind.ui.screens.settings.SettingsScreen
 
 private enum class MainTab { Home, Settings }
 
-private data class PermSheet(
-    val title: String,
-    val description: String,
-    val settingsIntent: Intent
-)
-
-private fun permSheetFor(kind: HomeSensorPermKind, sensorLabel: String): PermSheet? = when (kind) {
-    HomeSensorPermKind.USAGE_STATS -> PermSheet(
-        title = "Allow App Usage Access",
-        description = "\"$sensorLabel\" requires Usage Access permission so the study can track which apps you use and for how long.\n\nTap \"Open Settings\", find this app in the list, and turn on the toggle.",
-        settingsIntent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    )
-    HomeSensorPermKind.NOTIFICATION_LISTENER -> PermSheet(
-        title = "Allow Notification Access",
-        description = "\"$sensorLabel\" requires Notification Listener permission so the study can record when notifications arrive.\n\nTap \"Open Settings\", find this app in the list, and enable it.",
-        settingsIntent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    )
-    HomeSensorPermKind.ACCESSIBILITY -> PermSheet(
-        title = "Allow Accessibility Access",
-        description = "\"$sensorLabel\" requires Accessibility Service permission so the study can detect screen interactions.\n\nTap \"Open Settings\", find this app under Installed Apps, and turn on the toggle.",
-        settingsIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    )
+private fun permSheetFor(kind: HomeSensorPermKind, sensorLabel: String, packageName: String): PermSheet? = when (kind) {
+    HomeSensorPermKind.USAGE_STATS -> permSheetForKind(PermSheetKind.USAGE_STATS, sensorLabel, packageName)
+    HomeSensorPermKind.NOTIFICATION_LISTENER -> permSheetForKind(PermSheetKind.NOTIFICATION_LISTENER, sensorLabel, packageName)
+    HomeSensorPermKind.ACCESSIBILITY -> permSheetForKind(PermSheetKind.ACCESSIBILITY, sensorLabel, packageName)
     HomeSensorPermKind.RUNTIME -> null
 }
 
@@ -80,7 +65,6 @@ fun MainScreen(onWithdrawn: () -> Unit) {
     val homeViewModel: HomeViewModel = hiltViewModel()
 
     var pendingSheet by remember { mutableStateOf<PermSheet?>(null) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val permissionsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -114,7 +98,18 @@ fun MainScreen(onWithdrawn: () -> Unit) {
                 } // end if (perms.isNotEmpty())
             }
             else -> {
-                pendingSheet = permSheetFor(kind, sensorLabel(sensorType))
+                val sheet = permSheetFor(kind, sensorLabel(sensorType), context.packageName)
+                if (homeViewModel.state.value.guidedPermissions && sheet != null) {
+                    pendingSheet = sheet
+                } else {
+                    val intent = when (kind) {
+                        HomeSensorPermKind.USAGE_STATS -> Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                        HomeSensorPermKind.NOTIFICATION_LISTENER -> Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                        HomeSensorPermKind.ACCESSIBILITY -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        HomeSensorPermKind.RUNTIME -> null
+                    }
+                    intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)?.let { context.startActivity(it) }
+                }
             }
         }
     }
@@ -123,44 +118,8 @@ fun MainScreen(onWithdrawn: () -> Unit) {
     val studyStatus = homeState.study?.status
     val participantActive = homeState.participant?.status == "active"
 
-    if (pendingSheet != null) {
-        ModalBottomSheet(
-            onDismissRequest = { pendingSheet = null },
-            sheetState = sheetState
-        ) {
-            val sheet = pendingSheet!!
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text(sheet.title, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
-                Text(
-                    sheet.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Button(
-                    onClick = {
-                        pendingSheet = null
-                        context.startActivity(sheet.settingsIntent)
-                    },
-                    modifier = Modifier.fillMaxWidth().height(52.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Open Settings")
-                }
-                OutlinedButton(
-                    onClick = { pendingSheet = null },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Not Now")
-                }
-            }
-        }
+    pendingSheet?.let { sheet ->
+        PermissionBottomSheet(sheet = sheet, onDismiss = { pendingSheet = null })
     }
 
     Scaffold(

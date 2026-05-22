@@ -27,6 +27,7 @@ fun AppNavHost(navController: NavHostController) {
     var selectedStudy by remember { mutableStateOf<StudyEntity?>(null) }
     var enrolledDeviceId by remember { mutableStateOf<String?>(null) }
     var enabledSensorTypes by remember { mutableStateOf<List<String>>(emptyList()) }
+    var guidedPermissions by remember { mutableStateOf(false) }
 
     NavHost(navController = navController, startDestination = Route.Splash.path) {
 
@@ -55,9 +56,10 @@ fun AppNavHost(navController: NavHostController) {
                 val study = selectedStudy ?: return@composable
                 StudyDetailScreen(
                     study = study,
-                    onEnrolled = { deviceId, sensorTypes ->
+                    onEnrolled = { deviceId, sensorTypes, guided ->
                         enrolledDeviceId = deviceId
                         enabledSensorTypes = sensorTypes
+                        guidedPermissions = guided
                         navController.navigate(Route.Consent.path)
                     },
                     onBack = { navController.popBackStack() }
@@ -80,6 +82,7 @@ fun AppNavHost(navController: NavHostController) {
             composable(Route.PermissionOnboarding.path) {
                 PermissionOnboardingScreen(
                     enabledSensorTypes = enabledSensorTypes,
+                    guidedPermissions = guidedPermissions,
                     onContinue = { navController.navigate(Route.EnrollmentSuccess.path) }
                 )
             }

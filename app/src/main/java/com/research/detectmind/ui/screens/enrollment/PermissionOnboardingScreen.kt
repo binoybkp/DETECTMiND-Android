@@ -3,6 +3,10 @@ package com.research.detectmind.ui.screens.enrollment
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import com.research.detectmind.ui.components.PermSheet
+import com.research.detectmind.ui.components.PermSheetKind
+import com.research.detectmind.ui.components.PermissionBottomSheet
+import com.research.detectmind.ui.components.permSheetForKind
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -28,12 +32,18 @@ import androidx.lifecycle.repeatOnLifecycle
 @Composable
 fun PermissionOnboardingScreen(
     enabledSensorTypes: List<String>,
+    guidedPermissions: Boolean = false,
     onContinue: () -> Unit,
     viewModel: EnrollmentViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current
+    var pendingSheet by remember { mutableStateOf<PermSheet?>(null) }
+
+    pendingSheet?.let { sheet ->
+        PermissionBottomSheet(sheet = sheet, onDismiss = { pendingSheet = null })
+    }
 
     // Launcher for requesting RUNTIME permissions directly in-app
     val runtimeLauncher = rememberLauncherForActivityResult(
@@ -47,7 +57,8 @@ fun PermissionOnboardingScreen(
         }
     }
 
-    // Auto-request all RUNTIME permissions once when the screen first appears
+    // Auto-request RUNTIME permissions once when the screen first appears.
+    // BACKGROUND_LOCATION must be excluded — Android requires it to be granted separately via Settings.
     LaunchedEffect(state.permissionStatuses) {
         val runtimePerms = state.permissionStatuses
             .filter { !it.granted && it.sensorPermission.kind == PermissionKind.RUNTIME }
@@ -101,14 +112,17 @@ fun PermissionOnboardingScreen(
                                         if (perms.isNotEmpty()) runtimeLauncher.launch(perms.toTypedArray())
                                     }
                                     PermissionKind.USAGE_STATS ->
-                                        context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                        if (guidedPermissions) pendingSheet = permSheetForKind(PermSheetKind.USAGE_STATS, status.sensorPermission.label, context.packageName)
+                                        else context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                                     PermissionKind.NOTIFICATION_LISTENER ->
-                                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                        if (guidedPermissions) pendingSheet = permSheetForKind(PermSheetKind.NOTIFICATION_LISTENER, status.sensorPermission.label, context.packageName)
+                                        else context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                                     PermissionKind.ACCESSIBILITY ->
-                                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                        if (guidedPermissions) pendingSheet = permSheetForKind(PermSheetKind.ACCESSIBILITY, status.sensorPermission.label, context.packageName)
+                                        else context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                    PermissionKind.BACKGROUND_LOCATION ->
+                                        if (guidedPermissions) pendingSheet = permSheetForKind(PermSheetKind.BACKGROUND_LOCATION, status.sensorPermission.label, context.packageName)
+                                        else context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                                 }
                             }
                         )

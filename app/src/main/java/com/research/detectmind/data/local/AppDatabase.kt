@@ -24,7 +24,7 @@ import com.research.detectmind.data.local.entity.*
         ScreenInteractionEntity::class,
         SyncLogEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -26,7 +26,7 @@ import com.research.detectmind.data.local.entity.StudyEntity
 @Composable
 fun StudyDetailScreen(
     study: StudyEntity,
-    onEnrolled: (deviceId: String, enabledSensorTypes: List<String>) -> Unit,
+    onEnrolled: (deviceId: String, enabledSensorTypes: List<String>, guidedPermissions: Boolean) -> Unit,
     onBack: () -> Unit,
     viewModel: EnrollmentViewModel = hiltViewModel()
 ) {
@@ -34,9 +34,16 @@ fun StudyDetailScreen(
 
     LaunchedEffect(study) { viewModel.selectStudy(study) }
 
+    // When auto_participant_id is enabled, trigger enrollment automatically once study is set
+    LaunchedEffect(state.autoParticipantId, state.selectedStudy) {
+        if (state.autoParticipantId && state.selectedStudy != null && !state.enrolling && state.enrolledDeviceId == null) {
+            viewModel.autoEnroll()
+        }
+    }
+
     LaunchedEffect(state.enrolledDeviceId) {
         val did = state.enrolledDeviceId ?: return@LaunchedEffect
-        onEnrolled(did, state.enabledSensorTypes)
+        onEnrolled(did, state.enabledSensorTypes, state.guidedPermissions)
     }
 
     Scaffold(
@@ -96,74 +103,104 @@ fun StudyDetailScreen(
 
             HorizontalDivider()
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Enter your participant ID", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Enter the 6-character code provided by your researcher.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            // Large 6-digit input field
-            OutlinedTextField(
-                value = state.deviceId,
-                onValueChange = { raw ->
-                    val filtered = raw.uppercase().filter { it.isLetterOrDigit() }
-                    viewModel.onDeviceIdChange(filtered)
-                },
-                placeholder = {
+            if (state.autoParticipantId) {
+                // Auto-enroll mode — no input needed, just show progress
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    if (state.enrolling) {
+                        CircularProgressIndicator()
+                        Text(
+                            "Enrolling you automatically…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (state.enrollError != null) {
+                        Text(
+                            state.enrollError!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Button(
+                            onClick = viewModel::autoEnroll,
+                            modifier = Modifier.fillMaxWidth().height(56.dp)
+                        ) {
+                            Text("Retry", style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Enter your participant ID", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "······",
-                        style = TextStyle(
-                            fontSize = 36.sp,
-                            fontFamily = FontFamily.Monospace,
+                        "Enter the 6-character code provided by your researcher.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                OutlinedTextField(
+                    value = state.deviceId,
+                    onValueChange = { raw ->
+                        val filtered = raw.uppercase().filter { it.isLetterOrDigit() }
+                        viewModel.onDeviceIdChange(filtered)
+                    },
+                    placeholder = {
+                        Text(
+                            "······",
+                            style = TextStyle(
+                                fontSize = 36.sp,
+                                fontFamily = FontFamily.Monospace,
+                                textAlign = TextAlign.Center,
+                                letterSpacing = 12.sp
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
                             textAlign = TextAlign.Center,
-                            letterSpacing = 12.sp
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        )
+                    },
+                    singleLine = true,
+                    isError = state.deviceIdError != null,
+                    supportingText = state.deviceIdError?.let { { Text(it) } },
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Characters,
+                        keyboardType = KeyboardType.Ascii
+                    ),
+                    textStyle = TextStyle(
+                        fontSize = 36.sp,
+                        fontFamily = FontFamily.Monospace,
                         textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    )
-                },
-                singleLine = true,
-                isError = state.deviceIdError != null,
-                supportingText = state.deviceIdError?.let { { Text(it) } },
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Characters,
-                    keyboardType = KeyboardType.Ascii
-                ),
-                textStyle = TextStyle(
-                    fontSize = 36.sp,
-                    fontFamily = FontFamily.Monospace,
-                    textAlign = TextAlign.Center,
-                    letterSpacing = 12.sp
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(88.dp)
-            )
-
-            if (state.enrollError != null) {
-                Text(
-                    state.enrollError!!,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
+                        letterSpacing = 12.sp
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(88.dp)
                 )
-            }
 
-            Button(
-                onClick = viewModel::enrollWithSelectedStudy,
-                enabled = !state.enrolling && state.deviceId.length == 6,
-                modifier = Modifier.fillMaxWidth().height(56.dp)
-            ) {
-                if (state.enrolling) {
-                    CircularProgressIndicator(
-                        Modifier.size(22.dp), strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
+                if (state.enrollError != null) {
+                    Text(
+                        state.enrollError!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
                     )
-                } else {
-                    Text("Confirm Enrollment", style = MaterialTheme.typography.titleMedium)
+                }
+
+                Button(
+                    onClick = viewModel::enrollWithSelectedStudy,
+                    enabled = !state.enrolling && state.deviceId.length == 6,
+                    modifier = Modifier.fillMaxWidth().height(56.dp)
+                ) {
+                    if (state.enrolling) {
+                        CircularProgressIndicator(
+                            Modifier.size(22.dp), strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    } else {
+                        Text("Confirm Enrollment", style = MaterialTheme.typography.titleMedium)
+                    }
                 }
             }
 

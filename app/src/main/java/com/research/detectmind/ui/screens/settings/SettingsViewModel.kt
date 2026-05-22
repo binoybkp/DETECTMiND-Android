@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 import com.research.detectmind.BuildConfig
 import javax.inject.Inject
 
-enum class SettingsPermissionKind { RUNTIME, USAGE_STATS, NOTIFICATION_LISTENER, ACCESSIBILITY }
+enum class SettingsPermissionKind { RUNTIME, USAGE_STATS, NOTIFICATION_LISTENER, ACCESSIBILITY, BACKGROUND_LOCATION }
 
 data class SensorPermissionUiState(
     val sensorType: String,
@@ -45,6 +45,7 @@ data class SettingsUiState(
     val studyDescription: String? = null,
     val sensorPermissions: List<SensorPermissionUiState> = emptyList(),
     val appVersion: String = "",
+    val guidedPermissions: Boolean = false,
     val withdrawing: Boolean = false,
     val withdrawError: String? = null,
     val withdrawn: Boolean = false,
@@ -64,10 +65,10 @@ private val SENSOR_SPECS = mapOf(
     "screen_state"       to SensorPermSpec("Screen State",        SettingsPermissionKind.RUNTIME),
     "screen_interaction" to SensorPermSpec("Screen Interaction",  SettingsPermissionKind.ACCESSIBILITY),
     "light"              to SensorPermSpec("Ambient Light",       SettingsPermissionKind.RUNTIME),
-    "location"           to SensorPermSpec("Location",            SettingsPermissionKind.RUNTIME,
-                                           listOf(Manifest.permission.ACCESS_FINE_LOCATION)),
+    "location"           to SensorPermSpec("Location (Allow all the time)", SettingsPermissionKind.BACKGROUND_LOCATION,
+                                           listOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)),
     "calls"              to SensorPermSpec("Call Log",            SettingsPermissionKind.RUNTIME,
-                                           listOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_PHONE_STATE)),
+                                           listOf(Manifest.permission.READ_CALL_LOG)),
     "sms"                to SensorPermSpec("SMS Metadata",        SettingsPermissionKind.RUNTIME,
                                            listOf(Manifest.permission.READ_SMS)),
     "esm_ema"            to SensorPermSpec("ESM Surveys",         SettingsPermissionKind.RUNTIME,
@@ -109,6 +110,7 @@ class SettingsViewModel @Inject constructor(
                     studyDescription = study?.description?.takeIf { d -> d.isNotBlank() },
                     appVersion = "${versionName ?: "1.0"} (build ${BuildConfig.APP_VERSION_CODE})",
                     sensorPermissions = buildPermissionList(configs),
+                    guidedPermissions = study?.guidedPermissions ?: false,
                     loading = false
                 )
             }
@@ -125,13 +127,16 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun buildPermissionList(configs: List<SensorConfigEntity>): List<SensorPermissionUiState> =
-        configs.map { config ->
+        configs.mapNotNull { config ->
             val spec = SENSOR_SPECS[config.sensorType]
             val kind = spec?.kind ?: SettingsPermissionKind.RUNTIME
             val granted = when (kind) {
                 SettingsPermissionKind.USAGE_STATS -> isUsageStatsGranted()
                 SettingsPermissionKind.NOTIFICATION_LISTENER -> isNotificationListenerGranted()
                 SettingsPermissionKind.ACCESSIBILITY -> isAccessibilityGranted()
+                SettingsPermissionKind.BACKGROUND_LOCATION -> ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
                 SettingsPermissionKind.RUNTIME -> {
                     val perms = spec?.runtimePermissions ?: emptyList()
                     perms.isEmpty() || perms.all { perm ->
@@ -140,12 +145,13 @@ class SettingsViewModel @Inject constructor(
                 }
             }
             val noPermNeeded = kind == SettingsPermissionKind.RUNTIME && (spec?.runtimePermissions.isNullOrEmpty())
+            if (noPermNeeded) return@mapNotNull null
             SensorPermissionUiState(
                 sensorType = config.sensorType,
                 label = spec?.label ?: config.sensorType.replace("_", " ").replaceFirstChar { it.uppercase() },
                 granted = granted,
                 kind = kind,
-                notRequired = noPermNeeded
+                notRequired = false
             )
         }
 

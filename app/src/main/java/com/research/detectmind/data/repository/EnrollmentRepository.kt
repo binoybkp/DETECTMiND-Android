@@ -57,14 +57,16 @@ class EnrollmentRepository @Inject constructor(
             esmDao.clearSchedules()
             esmDao.clearQuestions()
 
+            // Resolve a unique device_id: if base is taken, try _2, _3, etc.
+            val resolvedDeviceId = resolveUniqueDeviceId(deviceId, studyId)
+
             val generatedId = java.util.UUID.randomUUID().toString()
 
-            // Upsert participant — merge-duplicates returns existing row if device_id+study_id match
             val uploadDto = ParticipantUploadDto(
                 id = generatedId,
                 studyId = studyId,
-                deviceId = deviceId,
-                label = "Device $deviceId",
+                deviceId = resolvedDeviceId,
+                label = "Device $resolvedDeviceId",
                 status = "active"
             )
             val upsertResp = api.upsertParticipant(uploadDto)
@@ -102,8 +104,8 @@ class EnrollmentRepository @Inject constructor(
                 ParticipantEntity(
                     id = participantId,
                     studyId = studyId,
-                    deviceId = deviceId,
-                    label = "Device $deviceId",
+                    deviceId = resolvedDeviceId,
+                    label = "Device $resolvedDeviceId",
                     status = "active",
                     enrolledAt = Instant.now().toString(),
                     lastSyncAt = null,
@@ -123,6 +125,21 @@ class EnrollmentRepository @Inject constructor(
         }
     }
 
+    private suspend fun resolveUniqueDeviceId(baseId: String, studyId: String): String {
+        // Fetch all existing device_ids in this study that start with baseId
+        val existing = runCatching {
+            api.getParticipants(studyId = "eq.$studyId").body()
+                ?.map { it.deviceId }
+                ?.toSet() ?: emptySet()
+        }.getOrDefault(emptySet())
+
+        if (!existing.contains(baseId)) return baseId
+
+        var suffix = 2
+        while (existing.contains("${baseId}_$suffix")) suffix++
+        return "${baseId}_$suffix"
+    }
+
     suspend fun clearEnrollment() {
         dataStore.edit {
             it.remove(KEY_ENROLLED)
@@ -136,7 +153,7 @@ class EnrollmentRepository @Inject constructor(
 // Mapping extensions
 fun StudyDto.toEntity() = StudyEntity(
     id = id, name = name, description = description, appDescription = appDescription,
-    status = status, syncIntervalMinutes = syncIntervalMinutes
+    status = status, syncIntervalMinutes = syncIntervalMinutes, config = config?.toString()
 )
 
 fun ParticipantDto.toEntity() = ParticipantEntity(

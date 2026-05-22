@@ -1,6 +1,7 @@
 package com.research.detectmind.ui.screens.enrollment
 
 import android.Manifest
+import android.app.AppOpsManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -9,6 +10,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.research.detectmind.data.local.dao.SensorConfigDao
+import com.research.detectmind.data.local.dao.StudyDao
 import com.research.detectmind.data.local.entity.StudyEntity
 import com.research.detectmind.data.repository.EnrollmentRepository
 import com.research.detectmind.data.repository.StudyRepository
@@ -20,7 +22,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-enum class PermissionKind { RUNTIME, USAGE_STATS, NOTIFICATION_LISTENER, ACCESSIBILITY }
+enum class PermissionKind { RUNTIME, USAGE_STATS, NOTIFICATION_LISTENER, ACCESSIBILITY, BACKGROUND_LOCATION }
 
 data class SensorPermission(
     val sensorType: String,
@@ -33,24 +35,22 @@ data class SensorPermission(
 val ALL_SENSOR_PERMISSIONS = listOf(
     SensorPermission(
         sensorType = "location",
-        label = "Location",
-        description = "Collects GPS coordinates for mobility patterns.",
-        permissions = listOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
+        label = "Location (Allow all the time)",
+        description = "Go to Location → select \"Allow all the time\" to enable continuous location collection.",
+        permissions = listOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+        kind = PermissionKind.BACKGROUND_LOCATION
     ),
     SensorPermission(
         sensorType = "calls",
         label = "Call Log",
         description = "Records call direction and duration. Contact numbers are SHA-256 hashed.",
-        permissions = listOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_PHONE_STATE)
+        permissions = listOf(Manifest.permission.READ_CALL_LOG)
     ),
     SensorPermission(
         sensorType = "sms",
         label = "SMS Metadata",
         description = "Records message direction and timestamps. Content and contacts are hashed.",
-        permissions = listOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS)
+        permissions = listOf(Manifest.permission.READ_SMS)
     ),
     SensorPermission(
         sensorType = "esm_ema",
@@ -104,7 +104,9 @@ data class EnrollmentUiState(
     // Success
     val enrolledParticipantId: String? = null,  // internal UUID, not shown to user
     val enrolledDeviceId: String? = null,        // the 6-char code the user typed
-    val enabledSensorTypes: List<String> = emptyList()
+    val enabledSensorTypes: List<String> = emptyList(),
+    val guidedPermissions: Boolean = false,
+    val autoParticipantId: Boolean = false
 )
 
 @HiltViewModel
@@ -112,6 +114,7 @@ class EnrollmentViewModel @Inject constructor(
     private val studyRepository: StudyRepository,
     private val enrollmentRepository: EnrollmentRepository,
     private val sensorConfigDao: SensorConfigDao,
+    private val studyDao: StudyDao,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -150,8 +153,38 @@ class EnrollmentViewModel @Inject constructor(
                 deviceId = "",
                 deviceIdError = null,
                 enrollError = null,
-                enrolledParticipantId = null
+                enrolledParticipantId = null,
+                autoParticipantId = study.autoParticipantId
             )
+        }
+    }
+
+    fun autoEnroll() {
+        val study = _state.value.selectedStudy ?: return
+        val androidId = android.provider.Settings.Secure.getString(
+            context.contentResolver, android.provider.Settings.Secure.ANDROID_ID
+        ) ?: ""
+        val deviceId = androidId.take(6).uppercase().padEnd(6, '0')
+        _state.update { it.copy(enrolling = true, enrollError = null) }
+        viewModelScope.launch {
+            enrollmentRepository.enrollWithDeviceId(deviceId = deviceId, studyId = study.id)
+                .onSuccess {
+                    val participantId = enrollmentRepository.getParticipantId()
+                    val sensorTypes = sensorConfigDao.getEnabledConfigs(study.id).map { it.sensorType }
+                    val guided = studyDao.getStudy(study.id)?.guidedPermissions ?: false
+                    _state.update {
+                        it.copy(
+                            enrolling = false,
+                            enrolledParticipantId = participantId,
+                            enrolledDeviceId = deviceId,
+                            enabledSensorTypes = sensorTypes,
+                            guidedPermissions = guided
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    _state.update { it.copy(enrolling = false, enrollError = e.message ?: "Enrollment failed") }
+                }
         }
     }
 
@@ -172,12 +205,14 @@ class EnrollmentViewModel @Inject constructor(
                 .onSuccess {
                     val participantId = enrollmentRepository.getParticipantId()
                     val sensorTypes = sensorConfigDao.getEnabledConfigs(study.id).map { it.sensorType }
+                    val guided = studyDao.getStudy(study.id)?.guidedPermissions ?: false
                     _state.update {
                         it.copy(
                             enrolling = false,
                             enrolledParticipantId = participantId,
                             enrolledDeviceId = id,
-                            enabledSensorTypes = sensorTypes
+                            enabledSensorTypes = sensorTypes,
+                            guidedPermissions = guided
                         )
                     }
                 }
@@ -204,6 +239,9 @@ class EnrollmentViewModel @Inject constructor(
                 PermissionKind.USAGE_STATS -> isUsageStatsGranted()
                 PermissionKind.NOTIFICATION_LISTENER -> isNotificationListenerGranted()
                 PermissionKind.ACCESSIBILITY -> isAccessibilityGranted()
+                PermissionKind.BACKGROUND_LOCATION -> ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
             }
             PermissionStatus(sp, granted)
         }
@@ -211,9 +249,14 @@ class EnrollmentViewModel @Inject constructor(
     }
 
     private fun isUsageStatsGranted(): Boolean = runCatching {
-        val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
-        val events = usm.queryEvents(System.currentTimeMillis() - 60_000L, System.currentTimeMillis())
-        events != null
+        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
+        } else {
+            @Suppress("DEPRECATION")
+            appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
+        }
+        mode == AppOpsManager.MODE_ALLOWED
     }.getOrDefault(false)
 
     private fun isNotificationListenerGranted(): Boolean {

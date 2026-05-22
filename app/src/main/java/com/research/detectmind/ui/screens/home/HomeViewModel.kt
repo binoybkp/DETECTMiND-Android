@@ -48,7 +48,8 @@ data class HomeUiState(
     val lastSyncFormatted: String? = null,
     val loading: Boolean = true,
     val withdrawn: Boolean = false,
-    val permissionIssues: Set<String> = emptySet()
+    val permissionIssues: Set<String> = emptySet(),
+    val guidedPermissions: Boolean = false
 )
 
 /** Describes what kind of permission a sensor needs. */
@@ -57,7 +58,7 @@ enum class HomeSensorPermKind { RUNTIME, USAGE_STATS, NOTIFICATION_LISTENER, ACC
 /** The runtime Android permissions (if any) required for each sensor type. */
 internal val SENSOR_RUNTIME_PERMS: Map<String, List<String>> = buildMap {
     put("location", listOf(Manifest.permission.ACCESS_FINE_LOCATION))
-    put("calls", listOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_PHONE_STATE))
+    put("calls", listOf(Manifest.permission.READ_CALL_LOG))
     put("sms", listOf(Manifest.permission.READ_SMS))
     put(
         "esm_ema",
@@ -147,7 +148,8 @@ class HomeViewModel @Inject constructor(
                 participant = participant,
                 enabledSensors = configs.filter { it.enabled },
                 lastSyncFormatted = lastSync,
-                loading = false
+                loading = false,
+                guidedPermissions = study?.guidedPermissions ?: false
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeUiState())
