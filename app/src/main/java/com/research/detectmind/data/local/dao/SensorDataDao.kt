@@ -67,6 +67,7 @@ interface SensorDataDao {
 
     // Screen Interaction
     @Insert suspend fun insertScreenInteraction(e: ScreenInteractionEntity): Long
+    @Insert suspend fun insertScreenInteractions(entities: List<ScreenInteractionEntity>)
     @Query("SELECT * FROM data_screen_interaction WHERE synced = 0 LIMIT :limit")
     suspend fun getUnsyncedScreenInteraction(limit: Int): List<ScreenInteractionEntity>
     @Query("UPDATE data_screen_interaction SET synced = 1 WHERE id IN (:ids)")

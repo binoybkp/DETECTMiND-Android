@@ -16,9 +16,14 @@ import com.research.detectmind.data.repository.SensorDataRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.time.Instant
 import javax.inject.Inject
@@ -31,6 +36,12 @@ class ScreenInteractionService : AccessibilityService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var resolvedParticipantId: String? = null
+
+    // In-memory event buffer — flushed to Room every FLUSH_INTERVAL_MS
+    private val eventBuffer = mutableListOf<ScreenInteractionEntity>()
+    private val bufferMutex = Mutex()
+    private var flushJob: Job? = null
+
 
     override fun onServiceConnected() {
         serviceInfo = AccessibilityServiceInfo().apply {
@@ -47,6 +58,30 @@ class ScreenInteractionService : AccessibilityService() {
             resolvedParticipantId = activeParticipantId
                 ?: dataStore.data.first()[EnrollmentRepository.KEY_PARTICIPANT_ID]
         }
+        // Start periodic flush loop
+        flushJob = serviceScope.launch {
+            while (isActive) {
+                delay(FLUSH_INTERVAL_MS)
+                flushBuffer()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Flush any remaining buffered events before service dies
+        flushJob?.cancel()
+        serviceScope.launch { flushBuffer() }
+    }
+
+    private suspend fun flushBuffer() {
+        val toInsert = bufferMutex.withLock {
+            if (eventBuffer.isEmpty()) return
+            val copy = eventBuffer.toList()
+            eventBuffer.clear()
+            copy
+        }
+        repo.insertScreenInteractions(toInsert)
     }
 
     private suspend fun participantId(): String? =
@@ -147,16 +182,15 @@ class ScreenInteractionService : AccessibilityService() {
 
         serviceScope.launch {
             val pid = participantId() ?: return@launch
-            repo.insertScreenInteraction(
-                ScreenInteractionEntity(
-                    participantId = pid,
-                    interactionType = interactionType,
-                    appName = appNameResolved,
-                    appCategory = appCategoryResolved,
-                    interactionData = interactionData.toString(),
-                    recordedAt = recordedAt
-                )
+            val entity = ScreenInteractionEntity(
+                participantId = pid,
+                interactionType = interactionType,
+                appName = appNameResolved,
+                appCategory = appCategoryResolved,
+                interactionData = interactionData.toString(),
+                recordedAt = recordedAt
             )
+            bufferMutex.withLock { eventBuffer.add(entity) }
         }
     }
 
@@ -206,9 +240,13 @@ class ScreenInteractionService : AccessibilityService() {
         }
     }
 
-    override fun onInterrupt() = Unit
+    override fun onInterrupt() {
+        flushJob?.cancel()
+        serviceScope.launch { flushBuffer() }
+    }
 
     companion object {
+        private const val FLUSH_INTERVAL_MS = 30_000L
         @Volatile var activeParticipantId: String? = null
     }
 }

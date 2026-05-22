@@ -3,6 +3,7 @@ package com.research.detectmind.service.collectors
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Location
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
@@ -27,6 +28,7 @@ class LocationCollector @Inject constructor(
     override val sensorType = "location"
     private var fusedClient: FusedLocationProviderClient? = null
     private var locationCallback: LocationCallback? = null
+    private var lastRecordedLocation: Location? = null
 
     override fun start(scope: CoroutineScope, participantId: String, intervalSeconds: Int?, configJson: String?) {
         val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -36,23 +38,35 @@ class LocationCollector @Inject constructor(
         if (!hasFine && !hasCoarse) return
 
         val intervalMs = (intervalSeconds ?: 60).coerceAtLeast(1) * 1000L
-        val movementThreshold = configJson?.let { json ->
+        val movementThresholdMeters = configJson?.let { json ->
             runCatching { JSONObject(json).getDouble("movement_threshold").toFloat() }.getOrNull()
         } ?: 0f
 
+        lastRecordedLocation = null
         fusedClient = LocationServices.getFusedLocationProviderClient(context)
 
+        // Always request at the configured interval with no distance filter —
+        // distance filtering is applied manually below so we get consistent
+        // interval-based callbacks regardless of movement.
         val request = LocationRequest.Builder(
             if (hasFine) Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY,
             intervalMs
         )
             .setMinUpdateIntervalMillis(intervalMs / 2)
-            .setMinUpdateDistanceMeters(movementThreshold)
             .build()
 
         val callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 for (loc in result.locations) {
+                    val last = lastRecordedLocation
+                    // If threshold > 0, only record when the user has moved at least that far
+                    // from the last recorded point. If threshold = 0, always record.
+                    val movedEnough = movementThresholdMeters <= 0f ||
+                            last == null ||
+                            last.distanceTo(loc) >= movementThresholdMeters
+                    if (!movedEnough) continue
+
+                    lastRecordedLocation = loc
                     scope.launch {
                         repo.insertLocation(
                             LocationEntity(
@@ -81,5 +95,6 @@ class LocationCollector @Inject constructor(
         locationCallback?.let { fusedClient?.removeLocationUpdates(it) }
         locationCallback = null
         fusedClient = null
+        lastRecordedLocation = null
     }
 }

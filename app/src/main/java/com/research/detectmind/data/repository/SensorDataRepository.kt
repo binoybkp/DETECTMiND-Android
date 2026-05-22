@@ -20,5 +20,6 @@ class SensorDataRepository @Inject constructor(
     suspend fun insertLight(e: LightEntity) = dao.insertLight(e)
     suspend fun insertScreenState(e: ScreenStateEntity) = dao.insertScreenState(e)
     suspend fun insertScreenInteraction(e: ScreenInteractionEntity) = dao.insertScreenInteraction(e)
+    suspend fun insertScreenInteractions(entities: List<ScreenInteractionEntity>) = dao.insertScreenInteractions(entities)
     suspend fun insertSyncLog(e: SyncLogEntity) = dao.insertSyncLog(e)
 }
