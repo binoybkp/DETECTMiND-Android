@@ -4,6 +4,9 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.graphics.Rect
+import android.os.Build
+import android.util.TypedValue
 import android.view.accessibility.AccessibilityEvent
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -51,6 +54,11 @@ class ScreenInteractionService : AccessibilityService() {
             ?: dataStore.data.first()[EnrollmentRepository.KEY_PARTICIPANT_ID]
                 .also { resolvedParticipantId = it }
 
+    // 50dp swipe threshold — converted once at runtime to raw pixels
+    private val swipeThresholdPx by lazy {
+        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 50f, resources.displayMetrics)
+    }
+
     // Touch tracking for swipe detection
     private var touchStartX = 0f
     private var touchStartY = 0f
@@ -59,10 +67,12 @@ class ScreenInteractionService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val packageName = event.packageName?.toString()
+        // Skip events with no package — lock screen transitions, unresolvable system events
+        if (packageName == null) return
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_START -> {
-                val (ex, ey) = eventCoords(event)
+                val (ex, ey) = eventCoords(event) ?: Pair(0f, 0f)
                 touchStartX = ex
                 touchStartY = ey
                 touchStartMs = System.currentTimeMillis()
@@ -74,46 +84,55 @@ class ScreenInteractionService : AccessibilityService() {
                 // long-presses by TYPE_VIEW_LONG_CLICKED, scrolls by TYPE_VIEW_SCROLLED.
                 // If a scroll already fired for this gesture, skip to avoid duplicates.
                 if (touchHadScroll) return
-                val (ex, ey) = eventCoords(event)
+                val (ex, ey) = eventCoords(event) ?: Pair(touchStartX, touchStartY)
                 val dx = ex - touchStartX
                 val dy = ey - touchStartY
                 val dist = Math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
-                if (dist > 50f) {
+                if (dist > swipeThresholdPx) {
                     val durationMs = System.currentTimeMillis() - touchStartMs
                     val data = JSONObject().apply {
-                        put("from_x", touchStartX)
-                        put("from_y", touchStartY)
-                        put("to_x", ex)
-                        put("to_y", ey)
-                        put("distance", dist)
+                        put("from_x", touchStartX.toInt())
+                        put("from_y", touchStartY.toInt())
+                        put("to_x", ex.toInt())
+                        put("to_y", ey.toInt())
+                        put("distance", dist.toInt())
                         put("direction", swipeDirection(dx, dy))
                         put("duration_ms", durationMs)
                     }
                     record(packageName, "swipe", data)
                 }
-                // Taps (dist <= 50) are already recorded via TYPE_VIEW_CLICKED — skip here.
+                // Taps (dist <= threshold) are already recorded via TYPE_VIEW_CLICKED — skip here.
             }
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
-                val (ex, ey) = eventCoords(event)
-                val data = JSONObject().apply { put("x", ex); put("y", ey) }
+                val (ex, ey) = eventCoords(event) ?: return  // skip if coords unavailable
+                val data = JSONObject().apply { put("x", ex.toInt()); put("y", ey.toInt()) }
                 record(packageName, "touch", data)
             }
             AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
-                val (ex, ey) = eventCoords(event)
-                val data = JSONObject().apply { put("x", ex); put("y", ey) }
+                val (ex, ey) = eventCoords(event) ?: return  // skip if coords unavailable
+                val data = JSONObject().apply { put("x", ex.toInt()); put("y", ey.toInt()) }
                 record(packageName, "long_press", data)
             }
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
                 touchHadScroll = true  // suppress swipe duplicate for this touch sequence
-                val (ex, ey) = eventCoords(event)
-                val scrollDx = event.scrollX
-                val scrollDy = event.scrollY
+                // scrollDeltaX/Y (API 28+) gives the actual pixels scrolled this event.
+                // On older APIs fall back to scrollX/Y (absolute position) — less precise but usable.
+                val scrollDx: Int
+                val scrollDy: Int
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    scrollDx = event.scrollDeltaX
+                    scrollDy = event.scrollDeltaY
+                } else {
+                    scrollDx = event.scrollX
+                    scrollDy = event.scrollY
+                }
+                // Skip scroll events with zero delta — no actual movement to record
+                if (scrollDx == 0 && scrollDy == 0) return
+                val (ex, ey) = eventCoords(event) ?: Pair(0f, 0f)
                 val data = JSONObject().apply {
-                    put("x", ex); put("y", ey)
-                    put("scroll_x", scrollDx); put("scroll_y", scrollDy)
-                    if (scrollDx != 0 || scrollDy != 0) {
-                        put("direction", swipeDirection(scrollDx.toFloat(), scrollDy.toFloat()))
-                    }
+                    put("x", ex.toInt()); put("y", ey.toInt())
+                    put("scroll_dx", scrollDx); put("scroll_dy", scrollDy)
+                    put("direction", swipeDirection(scrollDx.toFloat(), scrollDy.toFloat()))
                 }
                 record(packageName, "scroll", data)
             }
@@ -143,22 +162,23 @@ class ScreenInteractionService : AccessibilityService() {
 
     private fun resolveAppName(packageName: String): String? = runCatching {
         packageManager.getApplicationLabel(
-            packageManager.getApplicationInfo(packageName, 0)
+            packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
         ).toString()
     }.getOrNull()
 
     private fun resolveAppCategory(packageName: String): String? = runCatching {
-        val info = packageManager.getApplicationInfo(packageName, 0)
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        val info = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             when (info.category) {
-                ApplicationInfo.CATEGORY_GAME -> "game"
-                ApplicationInfo.CATEGORY_AUDIO -> "audio"
-                ApplicationInfo.CATEGORY_VIDEO -> "video"
-                ApplicationInfo.CATEGORY_IMAGE -> "image"
-                ApplicationInfo.CATEGORY_SOCIAL -> "social"
-                ApplicationInfo.CATEGORY_NEWS -> "news"
-                ApplicationInfo.CATEGORY_MAPS -> "maps"
+                ApplicationInfo.CATEGORY_GAME        -> "game"
+                ApplicationInfo.CATEGORY_AUDIO       -> "audio"
+                ApplicationInfo.CATEGORY_VIDEO       -> "video"
+                ApplicationInfo.CATEGORY_IMAGE       -> "image"
+                ApplicationInfo.CATEGORY_SOCIAL      -> "social"
+                ApplicationInfo.CATEGORY_NEWS        -> "news"
+                ApplicationInfo.CATEGORY_MAPS        -> "maps"
                 ApplicationInfo.CATEGORY_PRODUCTIVITY -> "productivity"
+                ApplicationInfo.CATEGORY_UNDEFINED   -> null  // truly uncategorised — store null, not "other"
                 else -> "other"
             }
         } else null
@@ -172,15 +192,17 @@ class ScreenInteractionService : AccessibilityService() {
         }
     }
 
-    private fun eventCoords(event: AccessibilityEvent): Pair<Float, Float> {
-        val node = event.source ?: return Pair(0f, 0f)
+    // Returns null when the source node is unavailable — callers should skip recording in that case.
+    private fun eventCoords(event: AccessibilityEvent): Pair<Float, Float>? {
+        val node = event.source ?: return null
         return try {
-            val rect = android.graphics.Rect()
+            val rect = Rect()
             node.getBoundsInScreen(rect)
-            node.recycle()
             Pair(rect.exactCenterX(), rect.exactCenterY())
         } catch (e: Exception) {
-            Pair(0f, 0f)
+            null
+        } finally {
+            node.recycle()
         }
     }
 
