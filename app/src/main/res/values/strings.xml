@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DETECTMiND</string>
+    <string name="notification_channel_sensor">Sensor Collection</string>
+    <string name="notification_channel_esm">Survey Notification</string>
+    <string name="notification_sensor_title">Collecting research data</string>
+    <string name="notification_sensor_text">Sensor data is being recorded in the background.</string>
+    <string name="accessibility_service_description">Records screen interaction types (touch, swipe, scroll) for research purposes. No personal content is captured.</string>
+</resources>

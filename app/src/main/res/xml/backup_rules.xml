@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Backup rules: exclude all sensor data and preferences.
+    Room databases contain participant sensor data — never backed up.
+    DataStore preferences contain participant_id and enrollment state.
+-->
+<full-backup-content>
+    <!-- Exclude entire databases directory (all Room DBs) -->
+    <exclude domain="database" path="." />
+    <!-- Exclude DataStore preferences -->
+    <exclude domain="file" path="datastore" />
+    <!-- Exclude shared prefs -->
+    <exclude domain="sharedpref" path="." />
+</full-backup-content>
