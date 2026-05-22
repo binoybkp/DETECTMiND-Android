@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.research.detectmind.BuildConfig
 import javax.inject.Inject
 
 enum class SettingsPermissionKind { RUNTIME, USAGE_STATS, NOTIFICATION_LISTENER, ACCESSIBILITY }
@@ -106,7 +107,7 @@ class SettingsViewModel @Inject constructor(
                 it.copy(
                     participantDeviceId = participant?.deviceId,
                     studyDescription = study?.description?.takeIf { d -> d.isNotBlank() },
-                    appVersion = versionName ?: "1.0",
+                    appVersion = "${versionName ?: "1.0"} (build ${BuildConfig.APP_VERSION_CODE})",
                     sensorPermissions = buildPermissionList(configs),
                     loading = false
                 )
