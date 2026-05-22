@@ -59,8 +59,26 @@ SyncWorker (WorkManager) → Supabase REST API
 - Collected data is never displayed to the participant
 - Consent screen must be accepted before enrollment
 
-## Build
+## Setup & Build
 
+**1. Clone the repo**
+```bash
+git clone https://github.com/binoybkp/DETECTMiND-Android.git
+cd DETECTMiND-Android
+```
+
+**2. Create `local.properties`** (never committed — copy from `local.properties.example`)
+```properties
+sdk.dir=/path/to/your/Android/sdk
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_ANON_KEY=your-anon-key-here
+```
+Get the URL and anon key from your Supabase dashboard → **Project Settings → API**.
+
+**3. Create Supabase tables**
+Run the schema defined in `CLAUDE.md` in your Supabase SQL editor to create all required tables.
+
+**4. Build**
 ```bash
 ./gradlew assembleDebug
 ./gradlew installDebug

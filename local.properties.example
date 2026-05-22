@@ -1,0 +1,10 @@
+# Copy this file to local.properties and fill in your values.
+# local.properties is gitignored and must never be committed.
+
+# Android SDK path (Android Studio sets this automatically)
+sdk.dir=/Users/yourname/Library/Android/sdk
+
+# Supabase project credentials
+# Get these from: Supabase Dashboard → Project Settings → API
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_ANON_KEY=your-anon-key-here
