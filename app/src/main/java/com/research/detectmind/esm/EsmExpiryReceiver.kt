@@ -19,18 +19,15 @@ class EsmExpiryReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val responseId = intent.getLongExtra(Constants.EXTRA_RESPONSE_ID, -1L)
-        val scheduleId = intent.getStringExtra(Constants.EXTRA_SCHEDULE_ID) ?: return
-        val notifId = scheduleId.hashCode()
+        if (responseId < 0) return
 
-        // Cancel the survey notification
+        // Cancel the survey notification (ID matches responseId set in EsmAlarmReceiver)
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.cancel(notifId)
+        nm.cancel(responseId.toInt())
 
         // Mark the response as expired if it hasn't been answered yet
-        if (responseId >= 0) {
-            CoroutineScope(Dispatchers.IO).launch {
-                esmDao.markExpired(responseId)
-            }
+        CoroutineScope(Dispatchers.IO).launch {
+            esmDao.markExpired(responseId)
         }
     }
 }

@@ -57,7 +57,7 @@ class EsmAlarmReceiver : BroadcastReceiver() {
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 showNotification(context, scheduleId, triggeredAt, title, body, responseId)
                 if (expiryMinutes > 0) {
-                    scheduleExpiry(context, scheduleId, responseId, expiryMinutes)
+                    scheduleExpiry(context, responseId, expiryMinutes)
                 }
             }
         }
@@ -78,7 +78,7 @@ class EsmAlarmReceiver : BroadcastReceiver() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pi = PendingIntent.getActivity(
-            context, scheduleId.hashCode(), surveyIntent,
+            context, responseId.toInt(), surveyIntent,  // unique per trigger, not per schedule
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -92,22 +92,20 @@ class EsmAlarmReceiver : BroadcastReceiver() {
             .build()
 
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(scheduleId.hashCode(), notification)
+        nm.notify(responseId.toInt(), notification)  // unique per trigger — multiple schedules don't overwrite each other
     }
 
     private fun scheduleExpiry(
         context: Context,
-        scheduleId: String,
         responseId: Long,
         expiryMinutes: Int
     ) {
         val expiryIntent = Intent(context, EsmExpiryReceiver::class.java).apply {
-            putExtra(Constants.EXTRA_SCHEDULE_ID, scheduleId)
             putExtra(Constants.EXTRA_RESPONSE_ID, responseId)
         }
         val pi = PendingIntent.getBroadcast(
             context,
-            (scheduleId + "_expiry").hashCode(),
+            ("expiry_$responseId").hashCode(),  // responseId is unique per trigger
             expiryIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

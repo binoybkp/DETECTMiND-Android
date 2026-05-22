@@ -5,8 +5,11 @@ import android.content.Context
 import android.content.Intent
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.work.ExistingWorkPolicy
+import androidx.work.WorkManager
 import com.research.detectmind.data.repository.EnrollmentRepository
 import com.research.detectmind.service.SensorService
+import com.research.detectmind.worker.EsmSchedulerWorker
 import com.research.detectmind.worker.ServiceWatchdogWorker
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -29,6 +32,12 @@ class BootReceiver : BroadcastReceiver() {
             if (enrolled) {
                 context.startForegroundService(Intent(context, SensorService::class.java))
                 ServiceWatchdogWorker.schedule(context)
+                // Reboot clears all AlarmManager alarms — reschedule ESM immediately
+                WorkManager.getInstance(context).enqueueUniqueWork(
+                    "esm_scheduler_boot",
+                    ExistingWorkPolicy.REPLACE,
+                    EsmSchedulerWorker.buildOneShot()
+                )
             }
         }
     }

@@ -80,19 +80,30 @@ class EsmSchedulerWorker @AssistedInject constructor(
         } ?: return
 
         val today = LocalDate.now()
-        val startMs = LocalDateTime.of(today, start).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val endMs = LocalDateTime.of(today, end).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         val now = System.currentTimeMillis()
-        val windowMs = endMs - startMs
-        if (windowMs <= 0) return
+
+        // Clamp window start to now so random picks are always in the future
+        val windowStartMs = maxOf(
+            LocalDateTime.of(today, start).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+            now + 60_000L  // at least 1 minute from now
+        )
+        val windowEndMs = LocalDateTime.of(today, end).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val windowMs = windowEndMs - windowStartMs
+        if (windowMs <= 0) return  // window already passed entirely today
 
         val count = schedule.randomCount ?: 1
-        repeat(count) { index ->
-            val triggerAt = startMs + (Random.nextLong(windowMs))
-            if (triggerAt > now) {
-                setAlarm(alarmManager, schedule, triggerAt,
-                    requestCode = (schedule.id + "_r$index").hashCode())
-            }
+
+        // Generate unique sorted times within the remaining window — no duplicates
+        val triggers = mutableSetOf<Long>()
+        var attempts = 0
+        while (triggers.size < count && attempts < count * 10) {
+            triggers.add(windowStartMs + Random.nextLong(windowMs))
+            attempts++
+        }
+
+        triggers.sorted().forEachIndexed { index, triggerAt ->
+            setAlarm(alarmManager, schedule, triggerAt,
+                requestCode = (schedule.id + "_r${today}_$index").hashCode())
         }
     }
 
