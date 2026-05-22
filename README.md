@@ -32,6 +32,13 @@ SyncWorker (WorkManager) → Supabase REST API
 - **ForegroundService** (`SensorService`) — always-on sensor collection
 - **AlarmManager** — precise ESM prompt delivery
 
+## Related Repositories
+
+| Repo | Description |
+|------|-------------|
+| [DETECTMiND-Android](https://github.com/binoybkp/DETECTMiND-Android.git) | This app — participant-facing Android sensor collector |
+| [DETECTMiND-Dashboard](https://github.com/binoybkp/DETECTMiND-Dashboard.git) | Researcher dashboard — manage studies, sensors, ESM, and view collected data |
+
 ## Backend
 
 - **Supabase** — `https://mrljqdnwblmfcobzgzwh.supabase.co`
@@ -76,9 +83,23 @@ SUPABASE_ANON_KEY=your-anon-key-here
 Get the URL and anon key from your Supabase dashboard → **Project Settings → API**.
 
 **3. Create Supabase tables**
-Run the schema defined in `CLAUDE.md` in your Supabase SQL editor to create all required tables.
 
-**4. Build**
+In your Supabase project, open the **SQL Editor** and run the schema:
+
+👉 [supabase_schema.sql](https://raw.githubusercontent.com/binoybkp/DETECTMiND-Dashboard/7dfffc9c0ba1201a75f7be3b0a2bf03c99eaa1d9/supabase_schema.sql)
+
+Or via curl:
+```bash
+curl -s https://raw.githubusercontent.com/binoybkp/DETECTMiND-Dashboard/7dfffc9c0ba1201a75f7be3b0a2bf03c99eaa1d9/supabase_schema.sql
+```
+
+This creates all required tables: `studies`, `participants`, `sensor_configs`, `esm_schedules`, `esm_questions`, all `data_*` sensor tables, and `sync_log`.
+
+**4. Set up the researcher dashboard**
+
+Clone and run the [DETECTMiND-Dashboard](https://github.com/binoybkp/DETECTMiND-Dashboard.git) to create studies, configure sensors, and view collected data.
+
+**5. Build**
 ```bash
 ./gradlew assembleDebug
 ./gradlew installDebug
