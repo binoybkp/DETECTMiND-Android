@@ -60,17 +60,18 @@ class ScreenInteractionService : AccessibilityService() {
     private val bufferMutex = Mutex()
     private var flushJob: Job? = null
 
-    // ── Gesture state — reset on every TOUCH_INTERACTION_START (main thread only) ──
+    // ── Gesture state — reset on TOUCH_INTERACTION_START (main thread only) ──────
     private var motionDownMs = 0L
     private var motionSuppressedByViewEvent = false  // true when VIEW_CLICKED/LONG_CLICKED fired
-    // Cumulative scroll deltas accumulated from TYPE_VIEW_SCROLLED within this gesture.
-    // Used both to classify swipe vs scroll and to emit one summary record at TOUCH_END
-    // instead of one record per scroll frame (Gmail fires 10-20 per swipe).
+    // Cumulative scroll deltas across all fling phases of one logical scroll gesture.
     private var gestureTotalDx = 0
     private var gestureTotalDy = 0
     private var gestureHadScroll = false
     private var gestureScrollNode: AccessibilityNodeInfo? = null  // last node seen during scroll
     private var gestureScrollClass: String? = null
+    // Debounce job: fires ~150 ms after the last TOUCH_END that had scroll.
+    // Cancelled+restarted if another scroll frame arrives (fling continuation).
+    private var scrollEmitJob: Job? = null
 
     // ── Layer 2: view-tree absolute scroll position (for WebView/Chrome delta calc) ──
     private val lastScrollPos = mutableMapOf<String, Pair<Int, Int>>()
@@ -207,13 +208,21 @@ class ScreenInteractionService : AccessibilityService() {
             // Suppressed when a richer view event (CLICKED/LONG_CLICKED/SCROLLED) fires
             // for the same gesture so we don't double-record on native View apps.
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_START -> {
+                // Cancel any pending scroll-emit debounce — a new touch means more input is
+                // coming; we'll re-arm it at the next TOUCH_END.
+                scrollEmitJob?.cancel()
+                scrollEmitJob = null
+                // If the previous gesture had scroll and its emit was just cancelled, carry the
+                // accumulated deltas forward (fling continuation). Otherwise full reset.
+                if (!gestureHadScroll) {
+                    gestureTotalDx = 0
+                    gestureTotalDy = 0
+                    try { gestureScrollNode?.recycle() } catch (_: Exception) {}
+                    gestureScrollNode = null
+                    gestureScrollClass = null
+                }
                 motionDownMs = System.currentTimeMillis()
                 motionSuppressedByViewEvent = false
-                gestureTotalDx = 0
-                gestureTotalDy = 0
-                gestureHadScroll = false
-                gestureScrollNode = null
-                gestureScrollClass = null
             }
 
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_END -> {
@@ -221,13 +230,20 @@ class ScreenInteractionService : AccessibilityService() {
                 val recordedAt = Instant.now().toString()
                 val capturedPkg = pkg
                 if (gestureHadScroll) {
-                    // Emit ONE summary record for the whole scroll gesture instead of per-frame
-                    val totalDx = gestureTotalDx
-                    val totalDy = gestureTotalDy
-                    val capturedNode = gestureScrollNode
-                    val capturedClass = gestureScrollClass
-                    gestureScrollNode = null
-                    serviceScope.launch {
+                    // Debounce: wait 200 ms before emitting. If a fling continuation fires more
+                    // scroll frames (new START+SCROLLED), the job is cancelled and re-armed,
+                    // merging all phases into one record.
+                    scrollEmitJob?.cancel()
+                    scrollEmitJob = serviceScope.launch {
+                        delay(SCROLL_EMIT_DEBOUNCE_MS)
+                        val totalDx = gestureTotalDx
+                        val totalDy = gestureTotalDy
+                        val capturedNode = gestureScrollNode
+                        val capturedClass = gestureScrollClass
+                        gestureScrollNode = null
+                        gestureHadScroll = false
+                        gestureTotalDx = 0
+                        gestureTotalDy = 0
                         val pid = participantId() ?: return@launch
                         val displacement = (abs(totalDx) + abs(totalDy)).toFloat()
                         val (type, data) = classifyGesture(durationMs, displacement,
@@ -307,6 +323,9 @@ class ScreenInteractionService : AccessibilityService() {
                     lastScrollPos[pkg] = absX to absY
                     if (scrollDx == 0 && scrollDy == 0) return
                 }
+                // Cancel any pending emit — more scroll data just arrived (fling frame)
+                scrollEmitJob?.cancel()
+                scrollEmitJob = null
                 gestureTotalDx += scrollDx
                 gestureTotalDy += scrollDy
                 gestureHadScroll = true
@@ -446,8 +465,9 @@ class ScreenInteractionService : AccessibilityService() {
     companion object {
         private const val TAG = "ScreenInterSvc"
         private const val FLUSH_INTERVAL_MS = 30_000L
-        private const val SWIPE_MIN_PX = 80f       // min displacement to classify as swipe
-        private const val LONG_PRESS_MIN_MS = 400L  // min duration for long_press
+        private const val SWIPE_MIN_PX = 80f         // min displacement to classify as swipe
+        private const val LONG_PRESS_MIN_MS = 400L   // min duration for long_press
+        private const val SCROLL_EMIT_DEBOUNCE_MS = 200L  // wait after TOUCH_END before emitting scroll record
         @Volatile var activeParticipantId: String? = null
     }
 }
