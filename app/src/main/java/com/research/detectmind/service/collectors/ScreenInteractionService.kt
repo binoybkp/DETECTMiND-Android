@@ -6,6 +6,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.os.Build
+import android.util.Log
 import android.util.TypedValue
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -138,6 +139,7 @@ class ScreenInteractionService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: currentPackage ?: return
         if (pkg in ignoredPackages) return
+        Log.d(TAG, "EVENT pkg=$pkg type=${AccessibilityEvent.eventTypeToString(event.eventType)}")
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
@@ -239,8 +241,10 @@ class ScreenInteractionService : AccessibilityService() {
                     scrollDx = 0
                     scrollDy = 0
                 }
-                // Chrome/WebView reports delta=0 but has valid absolute scrollX/scrollY.
-                // Compute delta from last known position to detect these scrolls.
+                // Chrome/WebView uses -1 as a sentinel meaning "no delta available, use absolute position".
+                // Skip recording the sentinel itself; the companion FrameLayout event has correct data.
+                if (scrollDx == -1 && scrollDy == -1) return
+                // For views where deltas are 0, compute delta from absolute scroll position change.
                 if (scrollDx == 0 && scrollDy == 0) {
                     val absX = event.scrollX
                     val absY = event.scrollY
@@ -320,6 +324,7 @@ class ScreenInteractionService : AccessibilityService() {
     ) {
         val appName = resolveAppName(packageName)
         val appCategory = resolveAppCategory(packageName)
+        Log.d(TAG, "ENQUEUE type=$interactionType pkg=$packageName appName=$appName data=$data")
         bufferMutex.withLock {
             eventBuffer.add(
                 ScreenInteractionEntity(
@@ -380,6 +385,7 @@ class ScreenInteractionService : AccessibilityService() {
             eventBuffer.clear()
             copy
         }
+        Log.d(TAG, "FLUSH inserting ${toInsert.size} records")
         repo.insertScreenInteractions(toInsert)
     }
 
@@ -395,6 +401,7 @@ class ScreenInteractionService : AccessibilityService() {
     }
 
     companion object {
+        private const val TAG = "ScreenInterSvc"
         private const val FLUSH_INTERVAL_MS = 30_000L
         @Volatile var activeParticipantId: String? = null
     }
