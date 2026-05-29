@@ -1,12 +1,15 @@
 package com.research.detectmind.worker
 
 import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import com.research.detectmind.BuildConfig
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -43,6 +46,23 @@ class SyncWorker @AssistedInject constructor(
     private val studyDao: StudyDao,
     private val dataStore: DataStore<Preferences>
 ) : CoroutineWorker(appContext, workerParams) {
+
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        val nm = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                NotificationChannel(Constants.NOTIFICATION_CHANNEL_SENSOR, "Sensor Collection", NotificationManager.IMPORTANCE_LOW)
+                    .apply { setShowBadge(false) }
+            )
+        }
+        val notification = NotificationCompat.Builder(appContext, Constants.NOTIFICATION_CHANNEL_SENSOR)
+            .setContentTitle("Syncing data…")
+            .setSmallIcon(android.R.drawable.ic_popup_sync)
+            .setOngoing(true)
+            .setSilent(true)
+            .build()
+        return ForegroundInfo(Constants.NOTIFICATION_ID_SYNC, notification)
+    }
 
     override suspend fun doWork(): Result {
         val prefs = dataStore.data.first()
@@ -369,6 +389,9 @@ class SyncWorker @AssistedInject constructor(
     }
 
     private suspend fun syncScreenInteraction(participantId: String): Int {
+        // Mark local-only types (window_transition, text_input) as synced so they
+        // don't block uploads — server schema only accepts touch/swipe/long_press/scroll
+        sensorDataDao.markUnsupportedInteractionTypesSynced()
         var count = 0
         do {
             val batch = sensorDataDao.getUnsyncedScreenInteraction(Constants.BATCH_SIZE)
@@ -434,6 +457,7 @@ class SyncWorker @AssistedInject constructor(
 
         fun buildOneShot(): OneTimeWorkRequest =
             OneTimeWorkRequestBuilder<SyncWorker>()
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setConstraints(networkConstraint)
                 .addTag(Constants.SYNC_WORK_TAG)
                 .build()

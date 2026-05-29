@@ -68,10 +68,14 @@ interface SensorDataDao {
     // Screen Interaction
     @Insert suspend fun insertScreenInteraction(e: ScreenInteractionEntity): Long
     @Insert suspend fun insertScreenInteractions(entities: List<ScreenInteractionEntity>)
-    @Query("SELECT * FROM data_screen_interaction WHERE synced = 0 LIMIT :limit")
+    // Only fetch the 4 types accepted by the Supabase schema CHECK constraint
+    @Query("SELECT * FROM data_screen_interaction WHERE synced = 0 AND interactionType IN ('touch','swipe','long_press','scroll') LIMIT :limit")
     suspend fun getUnsyncedScreenInteraction(limit: Int): List<ScreenInteractionEntity>
     @Query("UPDATE data_screen_interaction SET synced = 1 WHERE id IN (:ids)")
     suspend fun markScreenInteractionSynced(ids: List<Long>)
+    // Drain local-only types (window_transition, text_input) that are not yet in the server schema
+    @Query("UPDATE data_screen_interaction SET synced = 1 WHERE synced = 0 AND interactionType NOT IN ('touch','swipe','long_press','scroll')")
+    suspend fun markUnsupportedInteractionTypesSynced()
 
     // Sync Log
     @Insert suspend fun insertSyncLog(e: SyncLogEntity)
