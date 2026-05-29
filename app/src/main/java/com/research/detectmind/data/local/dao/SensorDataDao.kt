@@ -123,6 +123,7 @@ interface SensorDataDao {
     @Query("SELECT COUNT(*) FROM data_screen_state WHERE synced = 0") fun pendingScreenState(): Flow<Long>
     @Query("SELECT COUNT(*) FROM data_screen_state") fun totalScreenState(): Flow<Long>
 
-    @Query("SELECT COUNT(*) FROM data_screen_interaction WHERE synced = 0") fun pendingScreenInteraction(): Flow<Long>
+    // Only count uploadable types so window_transition/text_input don't inflate the pending count
+    @Query("SELECT COUNT(*) FROM data_screen_interaction WHERE synced = 0 AND interactionType IN ('touch','swipe','long_press','scroll')") fun pendingScreenInteraction(): Flow<Long>
     @Query("SELECT COUNT(*) FROM data_screen_interaction") fun totalScreenInteraction(): Flow<Long>
 }

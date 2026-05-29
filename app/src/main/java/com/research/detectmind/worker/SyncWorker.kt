@@ -389,8 +389,7 @@ class SyncWorker @AssistedInject constructor(
     }
 
     private suspend fun syncScreenInteraction(participantId: String): Int {
-        // Mark local-only types (window_transition, text_input) as synced so they
-        // don't block uploads — server schema only accepts touch/swipe/long_press/scroll
+        // Drain local-only types before and after upload — server only accepts touch/swipe/long_press/scroll
         sensorDataDao.markUnsupportedInteractionTypesSynced()
         var count = 0
         do {
@@ -406,6 +405,8 @@ class SyncWorker @AssistedInject constructor(
             sensorDataDao.markScreenInteractionSynced(batch.map { it.id })
             count += batch.size
         } while (batch.size == Constants.BATCH_SIZE)
+        // Drain any unsupported rows that arrived during the upload loop
+        sensorDataDao.markUnsupportedInteractionTypesSynced()
         return count
     }
 
