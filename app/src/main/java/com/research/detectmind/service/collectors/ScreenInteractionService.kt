@@ -6,7 +6,6 @@ import android.content.pm.ApplicationInfo
 import android.graphics.Rect
 import android.os.Build
 import android.util.Log
-import android.view.MotionEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.datastore.core.DataStore
@@ -29,7 +28,6 @@ import org.json.JSONObject
 import java.time.Instant
 import javax.inject.Inject
 import kotlin.math.abs
-import kotlin.math.hypot
 
 /**
  * Accessibility service that records screen interactions.
@@ -109,15 +107,8 @@ class ScreenInteractionService : AccessibilityService() {
                 AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
             flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
-                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-                    AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
+                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
             notificationTimeout = 0
-            // Android 13+: receive raw MotionEvents without enabling touch exploration
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                setMotionEventSources(
-                    android.view.InputDevice.SOURCE_TOUCHSCREEN
-                )
-            }
         }
         serviceScope.launch {
             resolvedParticipantId = activeParticipantId
@@ -132,52 +123,11 @@ class ScreenInteractionService : AccessibilityService() {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Layer 1: raw MotionEvent — fires for every app regardless of framework
+    // Layer 1: TOUCH_INTERACTION_START/END — fires at OS input layer for all
+    // apps including React Native and Flutter on real devices.
+    // Coordinates unavailable here, so we classify by duration only.
+    // Suppressed when a richer view-level event (CLICKED/SCROLLED) fires.
     // ─────────────────────────────────────────────────────────────────────────
-
-    override fun onMotionEvent(event: MotionEvent) {
-        val pkg = currentPackage ?: return
-        if (pkg in ignoredPackages) return
-
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                motionDownX = event.rawX
-                motionDownY = event.rawY
-                motionLastX = event.rawX
-                motionLastY = event.rawY
-                motionDownMs = System.currentTimeMillis()
-                motionMaxDisplace = 0f
-                motionSuppressedByViewEvent = false
-            }
-            MotionEvent.ACTION_MOVE -> {
-                val dx = event.rawX - motionDownX
-                val dy = event.rawY - motionDownY
-                val disp = hypot(dx, dy)
-                if (disp > motionMaxDisplace) motionMaxDisplace = disp
-                motionLastX = event.rawX
-                motionLastY = event.rawY
-            }
-            MotionEvent.ACTION_UP -> {
-                if (motionSuppressedByViewEvent) return
-                val durationMs = System.currentTimeMillis() - motionDownMs
-                val dx = motionLastX - motionDownX
-                val dy = motionLastY - motionDownY
-                val displacement = motionMaxDisplace
-                val sx = motionDownX; val sy = motionDownY
-                val capturedPkg = pkg
-                val recordedAt = Instant.now().toString()
-
-                serviceScope.launch {
-                    val pid = participantId() ?: return@launch
-                    val (type, data) = classifyGesture(durationMs, displacement, dx, dy, sx, sy)
-                    enqueue(pid, capturedPkg, type, data, recordedAt)
-                }
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                motionSuppressedByViewEvent = false
-            }
-        }
-    }
 
     private fun classifyGesture(
         durationMs: Long,
