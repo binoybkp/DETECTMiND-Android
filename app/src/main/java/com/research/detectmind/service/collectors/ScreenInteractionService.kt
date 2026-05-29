@@ -60,6 +60,7 @@ class ScreenInteractionService : AccessibilityService() {
     private var touchStartY = 0f
     private var touchStartMs = 0L
     private var touchHadScroll = false
+    private var touchHadClick = false  // true if TYPE_VIEW_CLICKED fired during this touch sequence
     // Track last scroll position per-package to detect scroll via position delta (e.g. WebView/Chrome)
     private val lastScrollPos = mutableMapOf<String, Pair<Int, Int>>()
 
@@ -139,7 +140,7 @@ class ScreenInteractionService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: currentPackage ?: return
         if (pkg in ignoredPackages) return
-        Log.d(TAG, "EVENT pkg=$pkg type=${AccessibilityEvent.eventTypeToString(event.eventType)}")
+        Log.i(TAG, "EVENT pkg=$pkg type=${AccessibilityEvent.eventTypeToString(event.eventType)}")
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
@@ -168,39 +169,39 @@ class ScreenInteractionService : AccessibilityService() {
             }
 
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_START -> {
-                // No IPC needed — just reset touch state
                 touchStartX = 0f
                 touchStartY = 0f
                 touchStartMs = System.currentTimeMillis()
                 touchHadScroll = false
+                touchHadClick = false
             }
 
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_END -> {
                 if (touchHadScroll) return
-                // Swipe detection uses stored start coords; end coords unavailable here on most
-                // devices so we record the vector from start only when distance > threshold.
-                // Exact end coords come from TYPE_VIEW_CLICKED for taps (already handled there).
                 val durationMs = System.currentTimeMillis() - touchStartMs
-                val sx = touchStartX; val sy = touchStartY
-                // No node available at TOUCH_END — skip node enrichment
                 val recordedAt = Instant.now().toString()
                 val capturedPkg = pkg
+                val hadClick = touchHadClick
+                touchHadClick = false
                 serviceScope.launch {
-                    // We cannot get end coords reliably here across all OEMs,
-                    // so swipe is recorded as directional only when we have clear displacement.
-                    // For most swipes, scroll events below provide better data.
                     val pid = participantId() ?: return@launch
+                    // If TYPE_VIEW_CLICKED already fired for this touch, it was recorded as "touch".
+                    // Avoid double-recording for native views.
+                    if (hadClick) return@launch
+                    // Classify by duration: short tap vs held press.
+                    // This is the only signal for canvas-based apps (React Native, Flutter, WebView)
+                    // that don't expose clickable accessibility nodes.
+                    val interactionType = if (durationMs < TAP_MAX_MS) "touch" else "long_press"
                     val data = JSONObject().apply {
-                        put("from_x", sx.toInt())
-                        put("from_y", sy.toInt())
                         put("duration_ms", durationMs)
+                        put("source", "touch_end_fallback")
                     }
-                    enqueue(pid, capturedPkg, "swipe", data, recordedAt)
+                    enqueue(pid, capturedPkg, interactionType, data, recordedAt)
                 }
             }
 
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
-                // Obtain node here — we'll recycle it in the coroutine
+                touchHadClick = true  // suppress fallback touch record at TOUCH_END
                 val node = try { event.source } catch (e: Exception) { null }
                 val evtClass = event.className?.toString()
                 val recordedAt = Instant.now().toString()
@@ -216,6 +217,7 @@ class ScreenInteractionService : AccessibilityService() {
             }
 
             AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
+                touchHadClick = true  // suppress fallback at TOUCH_END
                 val node = try { event.source } catch (e: Exception) { null }
                 val evtClass = event.className?.toString()
                 val recordedAt = Instant.now().toString()
@@ -324,7 +326,7 @@ class ScreenInteractionService : AccessibilityService() {
     ) {
         val appName = resolveAppName(packageName)
         val appCategory = resolveAppCategory(packageName)
-        Log.d(TAG, "ENQUEUE type=$interactionType pkg=$packageName appName=$appName data=$data")
+        Log.i(TAG, "ENQUEUE type=$interactionType pkg=$packageName appName=$appName data=$data")
         bufferMutex.withLock {
             eventBuffer.add(
                 ScreenInteractionEntity(
@@ -385,7 +387,7 @@ class ScreenInteractionService : AccessibilityService() {
             eventBuffer.clear()
             copy
         }
-        Log.d(TAG, "FLUSH inserting ${toInsert.size} records")
+        Log.i(TAG, "FLUSH inserting ${toInsert.size} records")
         repo.insertScreenInteractions(toInsert)
     }
 
@@ -403,6 +405,7 @@ class ScreenInteractionService : AccessibilityService() {
     companion object {
         private const val TAG = "ScreenInterSvc"
         private const val FLUSH_INTERVAL_MS = 30_000L
+        private const val TAP_MAX_MS = 250L  // touches shorter than this are classified as tap
         @Volatile var activeParticipantId: String? = null
     }
 }
