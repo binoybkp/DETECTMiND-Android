@@ -3,11 +3,10 @@ package com.research.detectmind.service.collectors
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.pm.ApplicationInfo
-import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.os.Build
 import android.util.Log
-import android.util.TypedValue
+import android.view.MotionEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.datastore.core.DataStore
@@ -35,12 +34,20 @@ import kotlin.math.hypot
 /**
  * Accessibility service that records screen interactions.
  *
- * IMPORTANT: onAccessibilityEvent runs on the MAIN thread. All work here must be
- * O(1) and non-blocking. We snapshot primitive values from the event immediately,
- * then hand off to a coroutine for node IPC and DB writes.
+ * Two-layer gesture detection:
  *
- * canRetrieveWindowContent=true is required for element class/id, but we only call
- * event.source inside the coroutine on Dispatchers.IO to avoid blocking the main thread.
+ * Layer 1 — onMotionEvent (raw input, fires for ALL apps including React Native / Flutter):
+ *   Tracks finger down/move/up to classify tap, long_press, swipe with direction and
+ *   displacement. This is the universal fallback that works for every app.
+ *
+ * Layer 2 — onAccessibilityEvent (view-tree events, fires only for native Android View apps):
+ *   TYPE_VIEW_CLICKED / LONG_CLICKED enrich the gesture with element class, id, coords.
+ *   TYPE_VIEW_SCROLLED gives precise scroll deltas and element info.
+ *   When a view event fires for the same gesture already tracked in Layer 1, Layer 1 is
+ *   suppressed to avoid double-recording.
+ *
+ * IMPORTANT: onAccessibilityEvent and onMotionEvent both run on the MAIN thread.
+ * All work must be O(1). Node IPC (event.source) is always deferred to IO coroutine.
  */
 @AndroidEntryPoint
 class ScreenInteractionService : AccessibilityService() {
@@ -55,25 +62,26 @@ class ScreenInteractionService : AccessibilityService() {
     private val bufferMutex = Mutex()
     private var flushJob: Job? = null
 
-    // Touch state — only accessed on main thread (onAccessibilityEvent)
-    private var touchStartX = 0f
-    private var touchStartY = 0f
-    private var touchStartMs = 0L
-    private var touchHadScroll = false
-    private var touchHadClick = false  // true if TYPE_VIEW_CLICKED fired during this touch sequence
-    // Track last scroll position per-package to detect scroll via position delta (e.g. WebView/Chrome)
+    // ── Layer 1: raw motion tracking (main thread only) ──────────────────────
+    private var motionDownX = 0f
+    private var motionDownY = 0f
+    private var motionDownMs = 0L
+    private var motionMaxDisplace = 0f   // max displacement from down point during gesture
+    private var motionLastX = 0f
+    private var motionLastY = 0f
+    // Set to true when a view-level event (CLICKED / LONG_CLICKED / SCROLLED) fires so
+    // Layer 1 skips recording for that gesture (view event is richer).
+    private var motionSuppressedByViewEvent = false
+
+    // ── Layer 2: view-tree scroll state ──────────────────────────────────────
     private val lastScrollPos = mutableMapOf<String, Pair<Int, Int>>()
 
-    // Current foreground package — updated on WINDOW_STATE_CHANGED (main thread)
+    // ── Foreground package (updated on WINDOW_STATE_CHANGED, main thread) ────
     private var currentPackage: String? = null
     private var currentWindowTitle: String? = null
 
-    // Cache resolved app names to avoid repeated PackageManager calls
+    // ── Caches ────────────────────────────────────────────────────────────────
     private val appNameCache = mutableMapOf<String, String?>()
-
-    private val swipeThresholdPx by lazy {
-        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 40f, resources.displayMetrics)
-    }
 
     private val ignoredPackages = setOf(
         "com.android.systemui",
@@ -101,8 +109,15 @@ class ScreenInteractionService : AccessibilityService() {
                 AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
             flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
-                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                    AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
             notificationTimeout = 0
+            // Android 13+: receive raw MotionEvents without enabling touch exploration
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                setMotionEventSources(
+                    android.view.InputDevice.SOURCE_TOUCHSCREEN
+                )
+            }
         }
         serviceScope.launch {
             resolvedParticipantId = activeParticipantId
@@ -116,26 +131,97 @@ class ScreenInteractionService : AccessibilityService() {
         }
     }
 
-    // Data class to carry everything we can read from an event on the main thread
-    // without any IPC calls. Node retrieval happens later on IO thread.
-    private data class EventSnapshot(
-        val eventType: Int,
-        val pkg: String,
-        val eventClassName: String?,   // className on the event itself (not the node)
-        val windowTitle: String?,
-        val scrollDx: Int,
-        val scrollDy: Int,
-        // Primitive touch fields — safe to read on main thread
-        val touchStartX: Float,
-        val touchStartY: Float,
-        val touchEndX: Float,
-        val touchEndY: Float,
-        val touchDurationMs: Long,
-        val recordedAt: String,
-        // We hold the node ref briefly to read it on the IO thread
-        // Caller must recycle() it after use
-        val nodeRef: AccessibilityNodeInfo?
-    )
+    // ─────────────────────────────────────────────────────────────────────────
+    // Layer 1: raw MotionEvent — fires for every app regardless of framework
+    // ─────────────────────────────────────────────────────────────────────────
+
+    override fun onMotionEvent(event: MotionEvent) {
+        val pkg = currentPackage ?: return
+        if (pkg in ignoredPackages) return
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                motionDownX = event.rawX
+                motionDownY = event.rawY
+                motionLastX = event.rawX
+                motionLastY = event.rawY
+                motionDownMs = System.currentTimeMillis()
+                motionMaxDisplace = 0f
+                motionSuppressedByViewEvent = false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.rawX - motionDownX
+                val dy = event.rawY - motionDownY
+                val disp = hypot(dx, dy)
+                if (disp > motionMaxDisplace) motionMaxDisplace = disp
+                motionLastX = event.rawX
+                motionLastY = event.rawY
+            }
+            MotionEvent.ACTION_UP -> {
+                if (motionSuppressedByViewEvent) return
+                val durationMs = System.currentTimeMillis() - motionDownMs
+                val dx = motionLastX - motionDownX
+                val dy = motionLastY - motionDownY
+                val displacement = motionMaxDisplace
+                val sx = motionDownX; val sy = motionDownY
+                val capturedPkg = pkg
+                val recordedAt = Instant.now().toString()
+
+                serviceScope.launch {
+                    val pid = participantId() ?: return@launch
+                    val (type, data) = classifyGesture(durationMs, displacement, dx, dy, sx, sy)
+                    enqueue(pid, capturedPkg, type, data, recordedAt)
+                }
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                motionSuppressedByViewEvent = false
+            }
+        }
+    }
+
+    private fun classifyGesture(
+        durationMs: Long,
+        displacement: Float,
+        dx: Float,
+        dy: Float,
+        startX: Float,
+        startY: Float
+    ): Pair<String, JSONObject> {
+        return when {
+            displacement >= SWIPE_MIN_PX -> {
+                val direction = swipeDirection(dx, dy)
+                val data = JSONObject().apply {
+                    put("direction", direction)
+                    put("dx", dx.toInt())
+                    put("dy", dy.toInt())
+                    put("duration_ms", durationMs)
+                    put("from_x", startX.toInt())
+                    put("from_y", startY.toInt())
+                }
+                "swipe" to data
+            }
+            durationMs >= LONG_PRESS_MIN_MS -> {
+                val data = JSONObject().apply {
+                    put("duration_ms", durationMs)
+                    put("x", startX.toInt())
+                    put("y", startY.toInt())
+                }
+                "long_press" to data
+            }
+            else -> {
+                val data = JSONObject().apply {
+                    put("duration_ms", durationMs)
+                    put("x", startX.toInt())
+                    put("y", startY.toInt())
+                }
+                "touch" to data
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Layer 2: accessibility view events — enrich with element detail
+    // ─────────────────────────────────────────────────────────────────────────
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: currentPackage ?: return
@@ -151,14 +237,12 @@ class ScreenInteractionService : AccessibilityService() {
                 if (newPkg == currentPackage && title == currentWindowTitle) return
                 currentPackage = newPkg
                 currentWindowTitle = title
-                // Reset scroll tracking when app changes
                 lastScrollPos.remove(newPkg)
                 val windowClass = event.className?.toString()
                 val capturedTitle = title
                 val recordedAt = Instant.now().toString()
                 serviceScope.launch {
                     val pid = participantId() ?: return@launch
-                    // Warm the app name cache so subsequent events get it immediately
                     if (!appNameCache.containsKey(newPkg)) resolveAppName(newPkg)
                     val data = JSONObject().apply {
                         capturedTitle?.let { put("window_title", it) }
@@ -168,40 +252,36 @@ class ScreenInteractionService : AccessibilityService() {
                 }
             }
 
+            // Pre-API33: TYPE_TOUCH_INTERACTION_START/END are the fallback for raw gestures.
+            // On API33+ these are unused because onMotionEvent handles everything.
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_START -> {
-                touchStartX = 0f
-                touchStartY = 0f
-                touchStartMs = System.currentTimeMillis()
-                touchHadScroll = false
-                touchHadClick = false
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                    motionDownX = 0f; motionDownY = 0f
+                    motionLastX = 0f; motionLastY = 0f
+                    motionDownMs = System.currentTimeMillis()
+                    motionMaxDisplace = 0f
+                    motionSuppressedByViewEvent = false
+                }
             }
 
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_END -> {
-                if (touchHadScroll) return
-                val durationMs = System.currentTimeMillis() - touchStartMs
-                val recordedAt = Instant.now().toString()
-                val capturedPkg = pkg
-                val hadClick = touchHadClick
-                touchHadClick = false
-                serviceScope.launch {
-                    val pid = participantId() ?: return@launch
-                    // If TYPE_VIEW_CLICKED already fired for this touch, it was recorded as "touch".
-                    // Avoid double-recording for native views.
-                    if (hadClick) return@launch
-                    // Classify by duration: short tap vs held press.
-                    // This is the only signal for canvas-based apps (React Native, Flutter, WebView)
-                    // that don't expose clickable accessibility nodes.
-                    val interactionType = if (durationMs < TAP_MAX_MS) "touch" else "long_press"
-                    val data = JSONObject().apply {
-                        put("duration_ms", durationMs)
-                        put("source", "touch_end_fallback")
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU && !motionSuppressedByViewEvent) {
+                    val durationMs = System.currentTimeMillis() - motionDownMs
+                    val recordedAt = Instant.now().toString()
+                    val capturedPkg = pkg
+                    serviceScope.launch {
+                        val pid = participantId() ?: return@launch
+                        val (type, data) = classifyGesture(durationMs, motionMaxDisplace,
+                            motionLastX - motionDownX, motionLastY - motionDownY,
+                            motionDownX, motionDownY)
+                        enqueue(pid, capturedPkg, type, data, recordedAt)
                     }
-                    enqueue(pid, capturedPkg, interactionType, data, recordedAt)
                 }
             }
 
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
-                touchHadClick = true  // suppress fallback touch record at TOUCH_END
+                // Native view tap — suppress Layer 1 record and record the richer version here
+                motionSuppressedByViewEvent = true
                 val node = try { event.source } catch (e: Exception) { null }
                 val evtClass = event.className?.toString()
                 val recordedAt = Instant.now().toString()
@@ -217,7 +297,7 @@ class ScreenInteractionService : AccessibilityService() {
             }
 
             AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
-                touchHadClick = true  // suppress fallback at TOUCH_END
+                motionSuppressedByViewEvent = true
                 val node = try { event.source } catch (e: Exception) { null }
                 val evtClass = event.className?.toString()
                 val recordedAt = Instant.now().toString()
@@ -233,7 +313,8 @@ class ScreenInteractionService : AccessibilityService() {
             }
 
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                touchHadScroll = true
+                // Scroll events from the view tree — suppress Layer 1 for this gesture
+                motionSuppressedByViewEvent = true
                 var scrollDx: Int
                 var scrollDy: Int
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -243,10 +324,7 @@ class ScreenInteractionService : AccessibilityService() {
                     scrollDx = 0
                     scrollDy = 0
                 }
-                // Chrome/WebView uses -1 as a sentinel meaning "no delta available, use absolute position".
-                // Skip recording the sentinel itself; the companion FrameLayout event has correct data.
                 if (scrollDx == -1 && scrollDy == -1) return
-                // For views where deltas are 0, compute delta from absolute scroll position change.
                 if (scrollDx == 0 && scrollDy == 0) {
                     val absX = event.scrollX
                     val absY = event.scrollY
@@ -353,7 +431,6 @@ class ScreenInteractionService : AccessibilityService() {
                 packageManager.getApplicationInfo(packageName, 0)
             ).toString()
         }.getOrNull()
-        // Cache result (empty string sentinel for "not found" to avoid repeated failed lookups)
         appNameCache[packageName] = name ?: ""
         return name
     }
@@ -405,7 +482,8 @@ class ScreenInteractionService : AccessibilityService() {
     companion object {
         private const val TAG = "ScreenInterSvc"
         private const val FLUSH_INTERVAL_MS = 30_000L
-        private const val TAP_MAX_MS = 250L  // touches shorter than this are classified as tap
+        private const val SWIPE_MIN_PX = 80f       // min displacement to classify as swipe
+        private const val LONG_PRESS_MIN_MS = 400L  // min duration for long_press
         @Volatile var activeParticipantId: String? = null
     }
 }
