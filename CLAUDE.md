@@ -158,7 +158,7 @@ sync_log
 3. PATCH participant `last_sync_at` and `permissions`
 4. Batch POST all unsynced Room records (500 per request, mark `synced=true` on success)
 5. POST one `sync_log` entry (success/partial/error)
-6. Schedule next sync after `study.sync_interval_minutes`
+6. Sync runs as `enqueueUniquePeriodicWork` with period = `study.sync_interval_minutes` (minimum 15 min enforced in code) — it is a repeating WorkManager job, not a one-shot reschedule
 
 ## ESM/EMA Rules
 - `fixed`: fire notification at each time in `times_of_day` daily

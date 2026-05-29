@@ -13,6 +13,8 @@ import com.research.detectmind.data.repository.SensorDataRepository
 import com.research.detectmind.util.CryptoUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
 import javax.inject.Inject
@@ -26,9 +28,15 @@ class SmsCollector @Inject constructor(
     private var scope: CoroutineScope? = null
     private var participantId: String = ""
     private var lastSeenId: Long = 0L
-    private var observer: ContentObserver? = null
+    private val observers = mutableListOf<ContentObserver>()
+    private var debounceJob: Job? = null
 
-    private val smsUri = Uri.parse("content://sms")
+    // Some OEMs (Nokia/HMD) don't fire onChange on content://sms reliably.
+    // Registering on both URIs ensures coverage across AOSP and OEM variants.
+    private val watchUris = listOf(
+        Uri.parse("content://sms"),
+        Uri.parse("content://mms-sms/")
+    )
 
     override fun start(scope: CoroutineScope, participantId: String, intervalSeconds: Int?, configJson: String?) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) !=
@@ -38,25 +46,35 @@ class SmsCollector @Inject constructor(
         this.participantId = participantId
         lastSeenId = queryMaxId()
 
-        val obs = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) {
-                scope.launch { drain() }
+        val handler = Handler(Looper.getMainLooper())
+        for (uri in watchUris) {
+            val obs = object : ContentObserver(handler) {
+                override fun onChange(selfChange: Boolean) {
+                    // Debounce: some devices fire multiple onChange per message
+                    debounceJob?.cancel()
+                    debounceJob = scope.launch {
+                        delay(1_000)
+                        drain()
+                    }
+                }
             }
+            observers.add(obs)
+            context.contentResolver.registerContentObserver(uri, true, obs)
         }
-        observer = obs
-        context.contentResolver.registerContentObserver(smsUri, true, obs)
     }
 
     override fun stop() {
-        observer?.let { context.contentResolver.unregisterContentObserver(it) }
-        observer = null
+        debounceJob?.cancel()
+        debounceJob = null
+        observers.forEach { context.contentResolver.unregisterContentObserver(it) }
+        observers.clear()
         scope = null
     }
 
     private fun queryMaxId(): Long {
         return runCatching {
             context.contentResolver.query(
-                smsUri, arrayOf("_id"), null, null, "_id DESC LIMIT 1"
+                Uri.parse("content://sms"), arrayOf("_id"), null, null, "_id DESC LIMIT 1"
             )?.use { c ->
                 if (c.moveToFirst()) c.getLong(0) else 0L
             } ?: 0L
@@ -66,7 +84,7 @@ class SmsCollector @Inject constructor(
     private suspend fun drain() {
         runCatching {
             context.contentResolver.query(
-                smsUri,
+                Uri.parse("content://sms"),
                 arrayOf("_id", "address", "body", "date", "type"),
                 "_id > ?",
                 arrayOf(lastSeenId.toString()),

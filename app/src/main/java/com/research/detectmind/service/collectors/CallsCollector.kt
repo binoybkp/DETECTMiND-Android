@@ -28,6 +28,7 @@ class CallsCollector @Inject constructor(
     private var scope: CoroutineScope? = null
     private var participantId: String = ""
     private var lastSeenId: Long = 0L
+    private var enrolledAtMillis: Long = 0L
     private val processedIds = mutableSetOf<Long>()
     private var debounceJob: Job? = null
     private var observer: ContentObserver? = null
@@ -38,6 +39,7 @@ class CallsCollector @Inject constructor(
 
         this.scope = scope
         this.participantId = participantId
+        enrolledAtMillis = Instant.now().toEpochMilli()
         lastSeenId = queryMaxId()
         processedIds.clear()
 
@@ -103,6 +105,13 @@ class CallsCollector @Inject constructor(
                 while (cursor.moveToNext()) {
                     val rowId = cursor.getLong(idIdx)
                     if (rowId in processedIds) continue  // already recorded from a previous onChange
+
+                    // Skip calls that happened before this collector was started (pre-enrollment history)
+                    val callDateMillis = cursor.getLong(dateIdx)
+                    if (callDateMillis < enrolledAtMillis) {
+                        if (rowId > lastSeenId) lastSeenId = rowId
+                        continue
+                    }
 
                     val type = cursor.getInt(typeIdx)
                     val direction = when (type) {
