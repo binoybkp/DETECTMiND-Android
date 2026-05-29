@@ -193,7 +193,6 @@ class ScreenInteractionService : AccessibilityService() {
                 val recordedAt = Instant.now().toString()
                 serviceScope.launch {
                     val pid = participantId() ?: return@launch
-                    if (!appNameCache.containsKey(newPkg)) resolveAppName(newPkg)
                     val data = JSONObject().apply {
                         capturedTitle?.let { put("window_title", it) }
                         windowClass?.let { put("window_class", it.substringAfterLast('.')) }
@@ -202,30 +201,31 @@ class ScreenInteractionService : AccessibilityService() {
                 }
             }
 
-            // Pre-API33: TYPE_TOUCH_INTERACTION_START/END are the fallback for raw gestures.
-            // On API33+ these are unused because onMotionEvent handles everything.
+            // TOUCH_INTERACTION_START/END: universal fallback for gesture detection.
+            // Fires at the OS input layer for all apps on all API levels.
+            // Suppressed when a richer view event (CLICKED/LONG_CLICKED/SCROLLED) fires
+            // for the same gesture so we don't double-record on native View apps.
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_START -> {
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                    motionDownX = 0f; motionDownY = 0f
-                    motionLastX = 0f; motionLastY = 0f
-                    motionDownMs = System.currentTimeMillis()
-                    motionMaxDisplace = 0f
-                    motionSuppressedByViewEvent = false
-                }
+                motionDownX = 0f; motionDownY = 0f
+                motionLastX = 0f; motionLastY = 0f
+                motionDownMs = System.currentTimeMillis()
+                motionMaxDisplace = 0f
+                motionSuppressedByViewEvent = false
             }
 
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_END -> {
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU && !motionSuppressedByViewEvent) {
-                    val durationMs = System.currentTimeMillis() - motionDownMs
-                    val recordedAt = Instant.now().toString()
-                    val capturedPkg = pkg
-                    serviceScope.launch {
-                        val pid = participantId() ?: return@launch
-                        val (type, data) = classifyGesture(durationMs, motionMaxDisplace,
-                            motionLastX - motionDownX, motionLastY - motionDownY,
-                            motionDownX, motionDownY)
-                        enqueue(pid, capturedPkg, type, data, recordedAt)
-                    }
+                if (motionSuppressedByViewEvent) return
+                val durationMs = System.currentTimeMillis() - motionDownMs
+                val recordedAt = Instant.now().toString()
+                val capturedPkg = pkg
+                serviceScope.launch {
+                    val pid = participantId() ?: return@launch
+                    val (type, data) = classifyGesture(
+                        durationMs, motionMaxDisplace,
+                        motionLastX - motionDownX, motionLastY - motionDownY,
+                        motionDownX, motionDownY
+                    )
+                    enqueue(pid, capturedPkg, type, data, recordedAt)
                 }
             }
 
