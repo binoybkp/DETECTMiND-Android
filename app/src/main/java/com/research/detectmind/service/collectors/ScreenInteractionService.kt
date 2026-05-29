@@ -59,10 +59,15 @@ class ScreenInteractionService : AccessibilityService() {
     private var touchStartY = 0f
     private var touchStartMs = 0L
     private var touchHadScroll = false
+    // Track last scroll position per-package to detect scroll via position delta (e.g. WebView/Chrome)
+    private val lastScrollPos = mutableMapOf<String, Pair<Int, Int>>()
 
     // Current foreground package — updated on WINDOW_STATE_CHANGED (main thread)
     private var currentPackage: String? = null
     private var currentWindowTitle: String? = null
+
+    // Cache resolved app names to avoid repeated PackageManager calls
+    private val appNameCache = mutableMapOf<String, String?>()
 
     private val swipeThresholdPx by lazy {
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 40f, resources.displayMetrics)
@@ -143,12 +148,15 @@ class ScreenInteractionService : AccessibilityService() {
                 if (newPkg == currentPackage && title == currentWindowTitle) return
                 currentPackage = newPkg
                 currentWindowTitle = title
-                // No node needed for window transitions — all data is on the event
+                // Reset scroll tracking when app changes
+                lastScrollPos.remove(newPkg)
                 val windowClass = event.className?.toString()
                 val capturedTitle = title
                 val recordedAt = Instant.now().toString()
                 serviceScope.launch {
                     val pid = participantId() ?: return@launch
+                    // Warm the app name cache so subsequent events get it immediately
+                    if (!appNameCache.containsKey(newPkg)) resolveAppName(newPkg)
                     val data = JSONObject().apply {
                         capturedTitle?.let { put("window_title", it) }
                         windowClass?.let { put("window_class", it.substringAfterLast('.')) }
@@ -222,16 +230,28 @@ class ScreenInteractionService : AccessibilityService() {
 
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
                 touchHadScroll = true
-                val scrollDx: Int
-                val scrollDy: Int
+                var scrollDx: Int
+                var scrollDy: Int
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     scrollDx = event.scrollDeltaX
                     scrollDy = event.scrollDeltaY
                 } else {
-                    scrollDx = event.scrollX
-                    scrollDy = event.scrollY
+                    scrollDx = 0
+                    scrollDy = 0
                 }
-                if (scrollDx == 0 && scrollDy == 0) return
+                // Chrome/WebView reports delta=0 but has valid absolute scrollX/scrollY.
+                // Compute delta from last known position to detect these scrolls.
+                if (scrollDx == 0 && scrollDy == 0) {
+                    val absX = event.scrollX
+                    val absY = event.scrollY
+                    val last = lastScrollPos[pkg]
+                    if (last != null) {
+                        scrollDx = absX - last.first
+                        scrollDy = absY - last.second
+                    }
+                    lastScrollPos[pkg] = absX to absY
+                    if (scrollDx == 0 && scrollDy == 0) return
+                }
                 val node = try { event.source } catch (e: Exception) { null }
                 val evtClass = event.className?.toString()
                 val dx = scrollDx; val dy = scrollDy
@@ -319,11 +339,17 @@ class ScreenInteractionService : AccessibilityService() {
             ?: dataStore.data.first()[EnrollmentRepository.KEY_PARTICIPANT_ID]
                 .also { resolvedParticipantId = it }
 
-    private fun resolveAppName(packageName: String): String? = runCatching {
-        packageManager.getApplicationLabel(
-            packageManager.getApplicationInfo(packageName, 0)
-        ).toString()
-    }.getOrNull()
+    private fun resolveAppName(packageName: String): String? {
+        appNameCache[packageName]?.let { return it.ifEmpty { null } }
+        val name = runCatching {
+            packageManager.getApplicationLabel(
+                packageManager.getApplicationInfo(packageName, 0)
+            ).toString()
+        }.getOrNull()
+        // Cache result (empty string sentinel for "not found" to avoid repeated failed lookups)
+        appNameCache[packageName] = name ?: ""
+        return name
+    }
 
     private fun resolveAppCategory(packageName: String): String? = runCatching {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
