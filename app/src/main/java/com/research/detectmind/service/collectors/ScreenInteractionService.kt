@@ -60,18 +60,19 @@ class ScreenInteractionService : AccessibilityService() {
     private val bufferMutex = Mutex()
     private var flushJob: Job? = null
 
-    // ── Layer 1: raw motion tracking (main thread only) ──────────────────────
-    private var motionDownX = 0f
-    private var motionDownY = 0f
+    // ── Gesture state — reset on every TOUCH_INTERACTION_START (main thread only) ──
     private var motionDownMs = 0L
-    private var motionMaxDisplace = 0f   // max displacement from down point during gesture
-    private var motionLastX = 0f
-    private var motionLastY = 0f
-    // Set to true when a view-level event (CLICKED / LONG_CLICKED / SCROLLED) fires so
-    // Layer 1 skips recording for that gesture (view event is richer).
-    private var motionSuppressedByViewEvent = false
+    private var motionSuppressedByViewEvent = false  // true when VIEW_CLICKED/LONG_CLICKED fired
+    // Cumulative scroll deltas accumulated from TYPE_VIEW_SCROLLED within this gesture.
+    // Used both to classify swipe vs scroll and to emit one summary record at TOUCH_END
+    // instead of one record per scroll frame (Gmail fires 10-20 per swipe).
+    private var gestureTotalDx = 0
+    private var gestureTotalDy = 0
+    private var gestureHadScroll = false
+    private var gestureScrollNode: AccessibilityNodeInfo? = null  // last node seen during scroll
+    private var gestureScrollClass: String? = null
 
-    // ── Layer 2: view-tree scroll state ──────────────────────────────────────
+    // ── Layer 2: view-tree absolute scroll position (for WebView/Chrome delta calc) ──
     private val lastScrollPos = mutableMapOf<String, Pair<Int, Int>>()
 
     // ── Foreground package (updated on WINDOW_STATE_CHANGED, main thread) ────
@@ -206,26 +207,45 @@ class ScreenInteractionService : AccessibilityService() {
             // Suppressed when a richer view event (CLICKED/LONG_CLICKED/SCROLLED) fires
             // for the same gesture so we don't double-record on native View apps.
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_START -> {
-                motionDownX = 0f; motionDownY = 0f
-                motionLastX = 0f; motionLastY = 0f
                 motionDownMs = System.currentTimeMillis()
-                motionMaxDisplace = 0f
                 motionSuppressedByViewEvent = false
+                gestureTotalDx = 0
+                gestureTotalDy = 0
+                gestureHadScroll = false
+                gestureScrollNode = null
+                gestureScrollClass = null
             }
 
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_END -> {
-                if (motionSuppressedByViewEvent) return
                 val durationMs = System.currentTimeMillis() - motionDownMs
                 val recordedAt = Instant.now().toString()
                 val capturedPkg = pkg
-                serviceScope.launch {
-                    val pid = participantId() ?: return@launch
-                    val (type, data) = classifyGesture(
-                        durationMs, motionMaxDisplace,
-                        motionLastX - motionDownX, motionLastY - motionDownY,
-                        motionDownX, motionDownY
-                    )
-                    enqueue(pid, capturedPkg, type, data, recordedAt)
+                if (gestureHadScroll) {
+                    // Emit ONE summary record for the whole scroll gesture instead of per-frame
+                    val totalDx = gestureTotalDx
+                    val totalDy = gestureTotalDy
+                    val capturedNode = gestureScrollNode
+                    val capturedClass = gestureScrollClass
+                    gestureScrollNode = null
+                    serviceScope.launch {
+                        val pid = participantId() ?: return@launch
+                        val displacement = (abs(totalDx) + abs(totalDy)).toFloat()
+                        val (type, data) = classifyGesture(durationMs, displacement,
+                            totalDx.toFloat(), totalDy.toFloat(), 0f, 0f)
+                        data.put("scroll_dx", totalDx)
+                        data.put("scroll_dy", totalDy)
+                        readNodeInfo(capturedNode, data)
+                        capturedClass?.substringAfterLast('.')
+                            ?.let { if (!data.has("element_class")) data.put("element_class", it) }
+                        enqueue(pid, capturedPkg, type, data, recordedAt)
+                    }
+                } else if (!motionSuppressedByViewEvent) {
+                    // No scroll, no view-click — duration-only fallback (covers RN/Flutter)
+                    serviceScope.launch {
+                        val pid = participantId() ?: return@launch
+                        val (type, data) = classifyGesture(durationMs, 0f, 0f, 0f, 0f, 0f)
+                        enqueue(pid, capturedPkg, type, data, recordedAt)
+                    }
                 }
             }
 
@@ -263,7 +283,8 @@ class ScreenInteractionService : AccessibilityService() {
             }
 
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                // Scroll events from the view tree — suppress Layer 1 for this gesture
+                // Accumulate scroll deltas within this gesture — emit ONE record at TOUCH_END
+                // to avoid 10-20 records per swipe (e.g. Gmail scroll animation frames).
                 motionSuppressedByViewEvent = true
                 var scrollDx: Int
                 var scrollDy: Int
@@ -286,23 +307,16 @@ class ScreenInteractionService : AccessibilityService() {
                     lastScrollPos[pkg] = absX to absY
                     if (scrollDx == 0 && scrollDy == 0) return
                 }
+                gestureTotalDx += scrollDx
+                gestureTotalDy += scrollDy
+                gestureHadScroll = true
+                // Keep a reference to the last scroll node (for element metadata at TOUCH_END)
                 val node = try { event.source } catch (e: Exception) { null }
-                val evtClass = event.className?.toString()
-                val dx = scrollDx; val dy = scrollDy
-                val recordedAt = Instant.now().toString()
-                val capturedPkg = pkg
-                serviceScope.launch {
-                    val pid = participantId() ?: return@launch
-                    val data = JSONObject().apply {
-                        put("scroll_dx", dx)
-                        put("scroll_dy", dy)
-                        put("direction", swipeDirection(dx.toFloat(), dy.toFloat()))
-                    }
-                    readNodeInfo(node, data)
-                    evtClass?.substringAfterLast('.')
-                        ?.let { if (!data.has("element_class")) data.put("element_class", it) }
-                    enqueue(pid, capturedPkg, "scroll", data, recordedAt)
+                if (node != null) {
+                    try { gestureScrollNode?.recycle() } catch (_: Exception) {}
+                    gestureScrollNode = node
                 }
+                gestureScrollClass = event.className?.toString()
             }
 
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
