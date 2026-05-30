@@ -65,19 +65,7 @@ interface SensorDataDao {
     @Query("UPDATE data_screen_state SET synced = 1 WHERE id IN (:ids)")
     suspend fun markScreenStateSynced(ids: List<Long>)
 
-    // Screen Interaction
-    @Insert suspend fun insertScreenInteraction(e: ScreenInteractionEntity): Long
-    @Insert suspend fun insertScreenInteractions(entities: List<ScreenInteractionEntity>)
-    // Only fetch the 4 types accepted by the Supabase schema CHECK constraint
-    @Query("SELECT * FROM data_screen_interaction WHERE synced = 0 AND interactionType IN ('touch','swipe','long_press','scroll') LIMIT :limit")
-    suspend fun getUnsyncedScreenInteraction(limit: Int): List<ScreenInteractionEntity>
-    @Query("UPDATE data_screen_interaction SET synced = 1 WHERE id IN (:ids)")
-    suspend fun markScreenInteractionSynced(ids: List<Long>)
-    // Drain local-only types (window_transition, text_input) that are not yet in the server schema
-    @Query("UPDATE data_screen_interaction SET synced = 1 WHERE synced = 0 AND interactionType NOT IN ('touch','swipe','long_press','scroll')")
-    suspend fun markUnsupportedInteractionTypesSynced()
-
-    // Sync Log
+// Sync Log
     @Insert suspend fun insertSyncLog(e: SyncLogEntity)
 
     // Clear all sensor data (called on re-enrollment)
@@ -89,13 +77,12 @@ interface SensorDataDao {
     @Query("DELETE FROM data_location") suspend fun clearLocation()
     @Query("DELETE FROM data_light") suspend fun clearLight()
     @Query("DELETE FROM data_screen_state") suspend fun clearScreenState()
-    @Query("DELETE FROM data_screen_interaction") suspend fun clearScreenInteraction()
-    @Query("DELETE FROM data_esm_responses") suspend fun clearEsmResponses()
+@Query("DELETE FROM data_esm_responses") suspend fun clearEsmResponses()
     @Query("DELETE FROM sync_log") suspend fun clearSyncLog()
     suspend fun clearAll() {
         clearAppUsage(); clearNotifications(); clearBattery(); clearCalls()
         clearSms(); clearLocation(); clearLight(); clearScreenState()
-        clearScreenInteraction(); clearEsmResponses(); clearSyncLog()
+        clearEsmResponses(); clearSyncLog()
     }
 
     // Per-sensor counts for HomeScreen display — Flow so UI updates automatically after sync
@@ -123,7 +110,4 @@ interface SensorDataDao {
     @Query("SELECT COUNT(*) FROM data_screen_state WHERE synced = 0") fun pendingScreenState(): Flow<Long>
     @Query("SELECT COUNT(*) FROM data_screen_state") fun totalScreenState(): Flow<Long>
 
-    // Only count uploadable types so window_transition/text_input don't inflate the pending count
-    @Query("SELECT COUNT(*) FROM data_screen_interaction WHERE synced = 0 AND interactionType IN ('touch','swipe','long_press','scroll')") fun pendingScreenInteraction(): Flow<Long>
-    @Query("SELECT COUNT(*) FROM data_screen_interaction") fun totalScreenInteraction(): Flow<Long>
 }

@@ -94,11 +94,7 @@ interface SupabaseApi {
     @Headers("Prefer: return=minimal")
     suspend fun uploadScreenState(@Body records: List<ScreenStateUploadDto>): Response<Unit>
 
-    @POST("rest/v1/data_screen_interaction")
-    @Headers("Prefer: return=minimal")
-    suspend fun uploadScreenInteraction(@Body records: List<ScreenInteractionUploadDto>): Response<Unit>
-
-    @POST("rest/v1/sync_log")
+@POST("rest/v1/sync_log")
     @Headers("Prefer: return=minimal")
     suspend fun uploadSyncLog(@Body records: List<SyncLogUploadDto>): Response<Unit>
 }

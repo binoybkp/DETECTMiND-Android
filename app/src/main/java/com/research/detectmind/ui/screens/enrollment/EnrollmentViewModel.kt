@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-enum class PermissionKind { RUNTIME, USAGE_STATS, NOTIFICATION_LISTENER, ACCESSIBILITY, BACKGROUND_LOCATION }
+enum class PermissionKind { RUNTIME, USAGE_STATS, NOTIFICATION_LISTENER, BACKGROUND_LOCATION }
 
 data class SensorPermission(
     val sensorType: String,
@@ -73,13 +73,6 @@ val ALL_SENSOR_PERMISSIONS = listOf(
         permissions = emptyList(),
         kind = PermissionKind.NOTIFICATION_LISTENER
     ),
-    SensorPermission(
-        sensorType = "screen_interaction",
-        label = "Accessibility Access",
-        description = "Records touch and scroll interactions. Enable under Accessibility → Participant Monitor.",
-        permissions = emptyList(),
-        kind = PermissionKind.ACCESSIBILITY
-    )
 )
 
 data class PermissionStatus(
@@ -238,7 +231,6 @@ class EnrollmentViewModel @Inject constructor(
                 }
                 PermissionKind.USAGE_STATS -> isUsageStatsGranted()
                 PermissionKind.NOTIFICATION_LISTENER -> isNotificationListenerGranted()
-                PermissionKind.ACCESSIBILITY -> isAccessibilityGranted()
                 PermissionKind.BACKGROUND_LOCATION -> ContextCompat.checkSelfPermission(
                     context, Manifest.permission.ACCESS_BACKGROUND_LOCATION
                 ) == PackageManager.PERMISSION_GRANTED
@@ -264,13 +256,6 @@ class EnrollmentViewModel @Inject constructor(
             context.contentResolver, "enabled_notification_listeners"
         ) ?: return false
         return flat.contains(context.packageName)
-    }
-
-    private fun isAccessibilityGranted(): Boolean {
-        val enabled = Settings.Secure.getString(
-            context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        return enabled.contains(context.packageName)
     }
 
     // ── Consent / monitoring start ───────────────────────────────────────────

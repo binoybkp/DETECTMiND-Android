@@ -159,8 +159,7 @@ class SyncWorker @AssistedInject constructor(
         totalSynced += runTable("location") { syncLocation(participantId) }.also { if (it < 0) { hasError = true; errors += "location" } }.coerceAtLeast(0)
         totalSynced += runTable("light") { syncLight(participantId) }.also { if (it < 0) { hasError = true; errors += "light" } }.coerceAtLeast(0)
         totalSynced += runTable("screen_state") { syncScreenState(participantId) }.also { if (it < 0) { hasError = true; errors += "screen_state" } }.coerceAtLeast(0)
-        totalSynced += runTable("screen_interaction") { syncScreenInteraction(participantId) }.also { if (it < 0) { hasError = true; errors += "screen_interaction" } }.coerceAtLeast(0)
-        totalSynced += runTable("esm_responses") { syncEsmResponses(participantId) }.also { if (it < 0) { hasError = true; errors += "esm_responses" } }.coerceAtLeast(0)
+totalSynced += runTable("esm_responses") { syncEsmResponses(participantId) }.also { if (it < 0) { hasError = true; errors += "esm_responses" } }.coerceAtLeast(0)
 
         // 4. POST sync_log
         val durationMs = System.currentTimeMillis() - startMs
@@ -225,7 +224,6 @@ class SyncWorker @AssistedInject constructor(
         put("usage_stats", isUsageStatsEnabled())
         put("call_log", hasPermission(Manifest.permission.READ_CALL_LOG))
         put("sms", hasPermission(Manifest.permission.READ_SMS))
-        put("accessibility", isAccessibilityServiceEnabled())
     }
 
     private fun hasPermission(permission: String): Boolean =
@@ -249,15 +247,6 @@ class SyncWorker @AssistedInject constructor(
             )
             events != null
         }.getOrDefault(false)
-    }
-
-    private fun isAccessibilityServiceEnabled(): Boolean {
-        val serviceClass = "com.research.detectmind/com.research.detectmind.service.collectors.ScreenInteractionService"
-        val enabled = Settings.Secure.getString(
-            appContext.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        return enabled.contains(serviceClass)
     }
 
     // ─── Data table sync helpers ──────────────────────────────────────────────
@@ -388,29 +377,7 @@ class SyncWorker @AssistedInject constructor(
         return count
     }
 
-    private suspend fun syncScreenInteraction(participantId: String): Int {
-        // Drain local-only types before and after upload — server only accepts touch/swipe/long_press/scroll
-        sensorDataDao.markUnsupportedInteractionTypesSynced()
-        var count = 0
-        do {
-            val batch = sensorDataDao.getUnsyncedScreenInteraction(Constants.BATCH_SIZE)
-            if (batch.isEmpty()) break
-            val dtos = batch.map {
-                val dataJson = it.interactionData?.let { raw ->
-                    runCatching { Json.parseToJsonElement(raw) }.getOrNull()
-                }
-                ScreenInteractionUploadDto(participantId, it.interactionType, it.appName, it.appCategory, dataJson, it.recordedAt)
-            }
-            checkResp(api.uploadScreenInteraction(dtos), "screen_interaction")
-            sensorDataDao.markScreenInteractionSynced(batch.map { it.id })
-            count += batch.size
-        } while (batch.size == Constants.BATCH_SIZE)
-        // Drain any unsupported rows that arrived during the upload loop
-        sensorDataDao.markUnsupportedInteractionTypesSynced()
-        return count
-    }
-
-    private suspend fun syncEsmResponses(participantId: String): Int {
+private suspend fun syncEsmResponses(participantId: String): Int {
         var count = 0
         do {
             val batch = esmDao.getUnsynced(Constants.BATCH_SIZE)

@@ -45,9 +45,7 @@ fun ConsentScreen(
             "Light sensor readings in lux."),
         ConsentDataItem("screen_state", Icons.Default.PhoneAndroid, "Screen State",
             "Screen on/off/locked/unlocked events."),
-        ConsentDataItem("screen_interaction", Icons.Default.TouchApp, "Screen Interaction",
-            "Touch, swipe, and scroll event types and coordinates."),
-        ConsentDataItem("esm_ema", Icons.AutoMirrored.Filled.Assignment, "Survey Responses",
+ConsentDataItem("esm_ema", Icons.AutoMirrored.Filled.Assignment, "Survey Responses",
             "Your answers to periodic experience-sampling surveys.")
     )
 

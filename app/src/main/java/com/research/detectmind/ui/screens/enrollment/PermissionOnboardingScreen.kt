@@ -117,9 +117,6 @@ fun PermissionOnboardingScreen(
                                     PermissionKind.NOTIFICATION_LISTENER ->
                                         if (guidedPermissions) pendingSheet = permSheetForKind(PermSheetKind.NOTIFICATION_LISTENER, status.sensorPermission.label, context.packageName)
                                         else context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                                    PermissionKind.ACCESSIBILITY ->
-                                        if (guidedPermissions) pendingSheet = permSheetForKind(PermSheetKind.ACCESSIBILITY, status.sensorPermission.label, context.packageName)
-                                        else context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                                     PermissionKind.BACKGROUND_LOCATION ->
                                         if (guidedPermissions) pendingSheet = permSheetForKind(PermSheetKind.BACKGROUND_LOCATION, status.sensorPermission.label, context.packageName)
                                         else context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

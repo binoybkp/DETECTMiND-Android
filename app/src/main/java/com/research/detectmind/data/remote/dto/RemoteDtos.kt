@@ -182,16 +182,6 @@ data class ScreenStateUploadDto(
 )
 
 @Serializable
-data class ScreenInteractionUploadDto(
-    @SerialName("participant_id") val participantId: String,
-    @SerialName("interaction_type") val interactionType: String,
-    @SerialName("app_name") val appName: String?,
-    @SerialName("app_category") val appCategory: String?,
-    @SerialName("interaction_data") val interactionData: kotlinx.serialization.json.JsonElement?,
-    @SerialName("recorded_at") val recordedAt: String
-)
-
-@Serializable
 data class SyncLogUploadDto(
     @SerialName("participant_id") val participantId: String,
     @SerialName("synced_at") val syncedAt: String,

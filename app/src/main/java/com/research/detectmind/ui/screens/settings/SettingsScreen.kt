@@ -222,7 +222,6 @@ fun SettingsScreen(
                                     val sheetKind = when (perm.kind) {
                                         SettingsPermissionKind.USAGE_STATS -> PermSheetKind.USAGE_STATS
                                         SettingsPermissionKind.NOTIFICATION_LISTENER -> PermSheetKind.NOTIFICATION_LISTENER
-                                        SettingsPermissionKind.ACCESSIBILITY -> PermSheetKind.ACCESSIBILITY
                                         SettingsPermissionKind.BACKGROUND_LOCATION -> PermSheetKind.BACKGROUND_LOCATION
                                         SettingsPermissionKind.RUNTIME -> null
                                     }
@@ -234,8 +233,6 @@ fun SettingsScreen(
                                                 Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
                                             SettingsPermissionKind.NOTIFICATION_LISTENER ->
                                                 Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                                            SettingsPermissionKind.ACCESSIBILITY ->
-                                                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                                             SettingsPermissionKind.BACKGROUND_LOCATION,
                                             SettingsPermissionKind.RUNTIME ->
                                                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {

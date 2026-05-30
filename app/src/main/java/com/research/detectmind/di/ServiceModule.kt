@@ -35,7 +35,4 @@ abstract class ServiceModule {
 
     @Binds @IntoSet @Singleton
     abstract fun bindSmsCollector(impl: SmsCollector): SensorCollector
-
-    @Binds @IntoSet @Singleton
-    abstract fun bindScreenInteractionCollector(impl: ScreenInteractionCollector): SensorCollector
 }

@@ -526,8 +526,7 @@ fun sensorMeta(sensorType: String): Pair<ImageVector, String> =
         "location"           -> Icons.Default.LocationOn              to "Location"
         "light"              -> Icons.Default.LightMode               to "Light"
         "screen_state"       -> Icons.Default.PhoneAndroid            to "Screen State"
-        "screen_interaction" -> Icons.Default.TouchApp                to "Screen Touch"
-        "esm_ema"            -> Icons.AutoMirrored.Filled.Assignment  to "ESM Surveys"
+"esm_ema"            -> Icons.AutoMirrored.Filled.Assignment  to "ESM Surveys"
         else -> Icons.Default.Sensors to
                 sensorType.replace("_", " ").replaceFirstChar { it.uppercase() }
     }

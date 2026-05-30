@@ -47,8 +47,7 @@ class SyncRepository @Inject constructor(
         runTable("location") { total += syncLocation(participantId) }
         runTable("light") { total += syncLight(participantId) }
         runTable("screen_state") { total += syncScreenState(participantId) }
-        runTable("screen_interaction") { total += syncScreenInteraction(participantId) }
-        runTable("esm_responses") { total += syncEsmResponses(participantId) }
+runTable("esm_responses") { total += syncEsmResponses(participantId) }
 
         val errorMsg = if (errors.isEmpty()) null else errors.joinToString(",")
         val durationMs = System.currentTimeMillis() - startMs
@@ -188,26 +187,6 @@ class SyncRepository @Inject constructor(
             val resp = api.uploadScreenState(dtos)
             if (resp.isSuccessful || resp.code() == 201) {
                 sensorDataDao.markScreenStateSynced(batch.map { it.id }); count += batch.size
-            } else break
-        } while (batch.size == Constants.BATCH_SIZE)
-        return count
-    }
-
-    private suspend fun syncScreenInteraction(participantId: String): Int {
-        var count = 0
-        do {
-            val batch = sensorDataDao.getUnsyncedScreenInteraction(Constants.BATCH_SIZE)
-            if (batch.isEmpty()) break
-            val dtos = batch.map {
-                ScreenInteractionUploadDto(
-                    participantId, it.interactionType, it.appName, it.appCategory,
-                    it.interactionData?.let { raw -> runCatching { kotlinx.serialization.json.Json.parseToJsonElement(raw) }.getOrNull() },
-                    it.recordedAt
-                )
-            }
-            val resp = api.uploadScreenInteraction(dtos)
-            if (resp.isSuccessful || resp.code() == 201) {
-                sensorDataDao.markScreenInteractionSynced(batch.map { it.id }); count += batch.size
             } else break
         } while (batch.size == Constants.BATCH_SIZE)
         return count

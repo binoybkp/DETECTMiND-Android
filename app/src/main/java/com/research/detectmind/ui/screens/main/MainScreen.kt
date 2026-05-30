@@ -39,15 +39,13 @@ private enum class MainTab { Home, Settings }
 private fun permSheetFor(kind: HomeSensorPermKind, sensorLabel: String, packageName: String): PermSheet? = when (kind) {
     HomeSensorPermKind.USAGE_STATS -> permSheetForKind(PermSheetKind.USAGE_STATS, sensorLabel, packageName)
     HomeSensorPermKind.NOTIFICATION_LISTENER -> permSheetForKind(PermSheetKind.NOTIFICATION_LISTENER, sensorLabel, packageName)
-    HomeSensorPermKind.ACCESSIBILITY -> permSheetForKind(PermSheetKind.ACCESSIBILITY, sensorLabel, packageName)
     HomeSensorPermKind.RUNTIME -> null
 }
 
 private fun sensorLabel(sensorType: String): String = when (sensorType) {
     "app_usage"          -> "App Usage"
     "notifications"      -> "Notifications"
-    "screen_interaction" -> "Screen Touch"
-    "location"           -> "Location"
+"location"           -> "Location"
     "calls"              -> "Call Log"
     "sms"                -> "SMS Metadata"
     "light"              -> "Ambient Light"
@@ -105,7 +103,6 @@ fun MainScreen(onWithdrawn: () -> Unit) {
                     val intent = when (kind) {
                         HomeSensorPermKind.USAGE_STATS -> Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
                         HomeSensorPermKind.NOTIFICATION_LISTENER -> Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                        HomeSensorPermKind.ACCESSIBILITY -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                         HomeSensorPermKind.RUNTIME -> null
                     }
                     intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)?.let { context.startActivity(it) }

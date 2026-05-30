@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
-import android.accessibilityservice.AccessibilityServiceInfo
 import androidx.core.content.ContextCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -30,7 +29,7 @@ import kotlinx.coroutines.launch
 import com.research.detectmind.BuildConfig
 import javax.inject.Inject
 
-enum class SettingsPermissionKind { RUNTIME, USAGE_STATS, NOTIFICATION_LISTENER, ACCESSIBILITY, BACKGROUND_LOCATION }
+enum class SettingsPermissionKind { RUNTIME, USAGE_STATS, NOTIFICATION_LISTENER, BACKGROUND_LOCATION }
 
 data class SensorPermissionUiState(
     val sensorType: String,
@@ -63,8 +62,7 @@ private val SENSOR_SPECS = mapOf(
     "notifications"      to SensorPermSpec("Notifications",       SettingsPermissionKind.NOTIFICATION_LISTENER),
     "battery"            to SensorPermSpec("Battery",             SettingsPermissionKind.RUNTIME),
     "screen_state"       to SensorPermSpec("Screen State",        SettingsPermissionKind.RUNTIME),
-    "screen_interaction" to SensorPermSpec("Screen Interaction",  SettingsPermissionKind.ACCESSIBILITY),
-    "light"              to SensorPermSpec("Ambient Light",       SettingsPermissionKind.RUNTIME),
+"light"              to SensorPermSpec("Ambient Light",       SettingsPermissionKind.RUNTIME),
     "location"           to SensorPermSpec("Location (Allow all the time)", SettingsPermissionKind.BACKGROUND_LOCATION,
                                            listOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)),
     "calls"              to SensorPermSpec("Call Log",            SettingsPermissionKind.RUNTIME,
@@ -133,7 +131,6 @@ class SettingsViewModel @Inject constructor(
             val granted = when (kind) {
                 SettingsPermissionKind.USAGE_STATS -> isUsageStatsGranted()
                 SettingsPermissionKind.NOTIFICATION_LISTENER -> isNotificationListenerGranted()
-                SettingsPermissionKind.ACCESSIBILITY -> isAccessibilityGranted()
                 SettingsPermissionKind.BACKGROUND_LOCATION -> ContextCompat.checkSelfPermission(
                     context, Manifest.permission.ACCESS_BACKGROUND_LOCATION
                 ) == PackageManager.PERMISSION_GRANTED
@@ -169,12 +166,6 @@ class SettingsViewModel @Inject constructor(
     private fun isNotificationListenerGranted(): Boolean {
         val flat = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners") ?: return false
         return flat.contains(context.packageName)
-    }
-
-    private fun isAccessibilityGranted(): Boolean {
-        val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as android.view.accessibility.AccessibilityManager
-        val enabled = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
-        return enabled.any { it.resolveInfo.serviceInfo.packageName == context.packageName }
     }
 
     fun withdraw() {

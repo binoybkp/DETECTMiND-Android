@@ -19,15 +19,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE"
-        tools:ignore="ProtectedPermissions"
-        xmlns:tools="http://schemas.android.com/tools" />
-    <!-- Required to resolve app names/categories for all installed packages in accessibility service -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission"
-        xmlns:tools="http://schemas.android.com/tools" />
 
-    <application
+<application
         android:name=".ParticipantMonitorApp"
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"
@@ -70,20 +63,7 @@
             </intent-filter>
         </service>
 
-        <!-- Accessibility service for screen interaction sensor -->
-        <service
-            android:name=".service.collectors.ScreenInteractionService"
-            android:exported="true"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_service_config" />
-        </service>
-
-        <!-- ESM alarm receiver -->
+<!-- ESM alarm receiver -->
         <receiver
             android:name=".esm.EsmAlarmReceiver"
             android:exported="false" />

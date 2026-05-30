@@ -1,7 +1,6 @@
 package com.research.detectmind.ui.screens.home
 
 import android.Manifest
-import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
@@ -53,7 +52,7 @@ data class HomeUiState(
 )
 
 /** Describes what kind of permission a sensor needs. */
-enum class HomeSensorPermKind { RUNTIME, USAGE_STATS, NOTIFICATION_LISTENER, ACCESSIBILITY }
+enum class HomeSensorPermKind { RUNTIME, USAGE_STATS, NOTIFICATION_LISTENER }
 
 /** The runtime Android permissions (if any) required for each sensor type. */
 internal val SENSOR_RUNTIME_PERMS: Map<String, List<String>> = buildMap {
@@ -71,8 +70,7 @@ internal val SENSOR_RUNTIME_PERMS: Map<String, List<String>> = buildMap {
 internal fun sensorPermKind(sensorType: String): HomeSensorPermKind = when (sensorType) {
     "app_usage"          -> HomeSensorPermKind.USAGE_STATS
     "notifications"      -> HomeSensorPermKind.NOTIFICATION_LISTENER
-    "screen_interaction" -> HomeSensorPermKind.ACCESSIBILITY
-    else                 -> HomeSensorPermKind.RUNTIME
+    else -> HomeSensorPermKind.RUNTIME
 }
 
 /** Returns the runtime permissions to request for a sensor type (empty = none needed). */
@@ -108,24 +106,22 @@ class HomeViewModel @Inject constructor(
     ) { first, second -> first + second }.combine(
         combine(
             sensorDataDao.pendingLight(), sensorDataDao.totalLight(),
-            sensorDataDao.pendingScreenState(), sensorDataDao.totalScreenState(),
-            sensorDataDao.pendingScreenInteraction(), sensorDataDao.totalScreenInteraction()
+            sensorDataDao.pendingScreenState(), sensorDataDao.totalScreenState()
         ) { a -> a }
     ) { first, second ->
         val all = first + second
         // all = [pendingAppUsage, totalAppUsage, pendingNotif, totalNotif, pendingBattery, totalBattery,
         //        pendingCalls, totalCalls, pendingSms, totalSms, pendingLocation, totalLocation,
-        //        pendingLight, totalLight, pendingScreenState, totalScreenState, pendingScreenInteraction, totalScreenInteraction]
+        //        pendingLight, totalLight, pendingScreenState, totalScreenState]
         mapOf(
-            "app_usage"          to SensorCounts(all[0],  all[1]),
-            "notifications"      to SensorCounts(all[2],  all[3]),
-            "battery"            to SensorCounts(all[4],  all[5]),
-            "calls"              to SensorCounts(all[6],  all[7]),
-            "sms"                to SensorCounts(all[8],  all[9]),
-            "location"           to SensorCounts(all[10], all[11]),
-            "light"              to SensorCounts(all[12], all[13]),
-            "screen_state"       to SensorCounts(all[14], all[15]),
-            "screen_interaction" to SensorCounts(all[16], all[17])
+            "app_usage"     to SensorCounts(all[0],  all[1]),
+            "notifications" to SensorCounts(all[2],  all[3]),
+            "battery"       to SensorCounts(all[4],  all[5]),
+            "calls"         to SensorCounts(all[6],  all[7]),
+            "sms"           to SensorCounts(all[8],  all[9]),
+            "location"      to SensorCounts(all[10], all[11]),
+            "light"         to SensorCounts(all[12], all[13]),
+            "screen_state"  to SensorCounts(all[14], all[15])
         )
     }
 
@@ -187,7 +183,6 @@ class HomeViewModel @Inject constructor(
                 when (sensorPermKind(sensorType)) {
                     HomeSensorPermKind.USAGE_STATS -> !isUsageStatsGranted()
                     HomeSensorPermKind.NOTIFICATION_LISTENER -> !isNotificationListenerGranted()
-                    HomeSensorPermKind.ACCESSIBILITY -> !isAccessibilityGranted()
                     HomeSensorPermKind.RUNTIME -> {
                         val perms = runtimePermsForSensor(sensorType)
                         perms.isNotEmpty() && perms.any {
@@ -212,12 +207,6 @@ class HomeViewModel @Inject constructor(
     private fun isNotificationListenerGranted(): Boolean {
         val flat = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners") ?: return false
         return flat.contains(context.packageName)
-    }
-
-    private fun isAccessibilityGranted(): Boolean {
-        val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as android.view.accessibility.AccessibilityManager
-        val enabled = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
-        return enabled.any { it.resolveInfo.serviceInfo.packageName == context.packageName }
     }
 
     private fun updateSyncCountdown() {

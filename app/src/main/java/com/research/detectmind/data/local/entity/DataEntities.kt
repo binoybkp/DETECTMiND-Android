@@ -111,18 +111,6 @@ data class ScreenStateEntity(
     val synced: Boolean = false
 )
 
-@Entity(tableName = "data_screen_interaction")
-data class ScreenInteractionEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val participantId: String,
-    val interactionType: String,
-    val appName: String?,
-    val appCategory: String?,
-    val interactionData: String?,  // JSON: coords, direction, distance etc.
-    val recordedAt: String,
-    val synced: Boolean = false
-)
-
 @Entity(tableName = "sync_log")
 data class SyncLogEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
