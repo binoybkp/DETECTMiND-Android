@@ -2,8 +2,16 @@ package com.research.detectmind.data.local
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.research.detectmind.data.local.dao.*
 import com.research.detectmind.data.local.entity.*
+
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS data_screen_interaction")
+    }
+}
 
 @Database(
     entities = [
@@ -21,9 +29,9 @@ import com.research.detectmind.data.local.entity.*
         LocationEntity::class,
         LightEntity::class,
         ScreenStateEntity::class,
-SyncLogEntity::class,
+        SyncLogEntity::class,
     ],
-    version = 5,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

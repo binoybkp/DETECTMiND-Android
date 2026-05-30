@@ -71,7 +71,7 @@ private val SENSOR_SPECS = mapOf(
                                            listOf(Manifest.permission.READ_SMS)),
     "esm_ema"            to SensorPermSpec("ESM Surveys",         SettingsPermissionKind.RUNTIME,
                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                                               listOf(Manifest.permission.POST_NOTIFICATIONS) else emptyList())
+                                               listOf(Manifest.permission.POST_NOTIFICATIONS) else emptyList()),
 )
 
 

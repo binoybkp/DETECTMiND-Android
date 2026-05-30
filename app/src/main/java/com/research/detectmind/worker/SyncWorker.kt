@@ -159,6 +159,7 @@ class SyncWorker @AssistedInject constructor(
         totalSynced += runTable("location") { syncLocation(participantId) }.also { if (it < 0) { hasError = true; errors += "location" } }.coerceAtLeast(0)
         totalSynced += runTable("light") { syncLight(participantId) }.also { if (it < 0) { hasError = true; errors += "light" } }.coerceAtLeast(0)
         totalSynced += runTable("screen_state") { syncScreenState(participantId) }.also { if (it < 0) { hasError = true; errors += "screen_state" } }.coerceAtLeast(0)
+
 totalSynced += runTable("esm_responses") { syncEsmResponses(participantId) }.also { if (it < 0) { hasError = true; errors += "esm_responses" } }.coerceAtLeast(0)
 
         // 4. POST sync_log

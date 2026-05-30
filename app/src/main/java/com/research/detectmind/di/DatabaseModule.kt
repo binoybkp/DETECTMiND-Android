@@ -3,6 +3,7 @@ package com.research.detectmind.di
 import android.content.Context
 import androidx.room.Room
 import com.research.detectmind.data.local.AppDatabase
+import com.research.detectmind.data.local.MIGRATION_7_8
 import com.research.detectmind.data.local.dao.*
 import dagger.Module
 import dagger.Provides
@@ -19,6 +20,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "participant_monitor.db")
+            .addMigrations(MIGRATION_7_8)
             .fallbackToDestructiveMigration()
             .build()
 

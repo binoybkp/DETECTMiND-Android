@@ -6,4 +6,5 @@
     <string name="notification_sensor_title">Collecting research data</string>
     <string name="notification_sensor_text">Sensor data is being recorded in the background.</string>
     <string name="accessibility_service_description">Records screen interaction types (touch, swipe, scroll) for research purposes. No personal content is captured.</string>
+    <string name="accessibility_service_label">DETECTMiND Screen Interaction</string>
 </resources>

@@ -15,6 +15,9 @@ interface SensorConfigDao {
     @Query("SELECT * FROM sensor_configs WHERE studyId = :studyId AND enabled = 1")
     suspend fun getEnabledConfigs(studyId: String): List<SensorConfigEntity>
 
+    @Query("SELECT * FROM sensor_configs WHERE studyId = :studyId AND sensorType = :sensorType LIMIT 1")
+    suspend fun getConfig(studyId: String, sensorType: String): SensorConfigEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(configs: List<SensorConfigEntity>)
 

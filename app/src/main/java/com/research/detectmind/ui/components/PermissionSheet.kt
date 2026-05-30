@@ -30,11 +30,6 @@ fun permSheetForKind(kind: PermSheetKind, sensorLabel: String, packageName: Stri
         description = "\"$sensorLabel\" requires Notification Listener permission so the study can record when notifications arrive.\n\nTap \"Open Settings\", find this app in the list, and enable it.",
         settingsIntent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     )
-    PermSheetKind.ACCESSIBILITY -> PermSheet(
-        title = "Allow Accessibility Access",
-        description = "\"$sensorLabel\" requires Accessibility Service permission so the study can detect screen interactions.\n\nTap \"Open Settings\", find this app under Installed Apps, and turn on the toggle.",
-        settingsIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    )
     PermSheetKind.BACKGROUND_LOCATION -> PermSheet(
         title = "Allow Location All the Time",
         description = "\"$sensorLabel\" requires background location permission so the study can track your mobility patterns even when the app is not open.\n\nTap \"Open Settings\", go to Location, and select \"Allow all the time\".",
@@ -44,7 +39,7 @@ fun permSheetForKind(kind: PermSheetKind, sensorLabel: String, packageName: Stri
     )
 }
 
-enum class PermSheetKind { USAGE_STATS, NOTIFICATION_LISTENER, ACCESSIBILITY, BACKGROUND_LOCATION }
+enum class PermSheetKind { USAGE_STATS, NOTIFICATION_LISTENER, BACKGROUND_LOCATION }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

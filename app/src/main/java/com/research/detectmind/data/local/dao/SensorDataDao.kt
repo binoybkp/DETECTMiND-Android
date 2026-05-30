@@ -77,7 +77,7 @@ interface SensorDataDao {
     @Query("DELETE FROM data_location") suspend fun clearLocation()
     @Query("DELETE FROM data_light") suspend fun clearLight()
     @Query("DELETE FROM data_screen_state") suspend fun clearScreenState()
-@Query("DELETE FROM data_esm_responses") suspend fun clearEsmResponses()
+    @Query("DELETE FROM data_esm_responses") suspend fun clearEsmResponses()
     @Query("DELETE FROM sync_log") suspend fun clearSyncLog()
     suspend fun clearAll() {
         clearAppUsage(); clearNotifications(); clearBattery(); clearCalls()
@@ -109,5 +109,6 @@ interface SensorDataDao {
 
     @Query("SELECT COUNT(*) FROM data_screen_state WHERE synced = 0") fun pendingScreenState(): Flow<Long>
     @Query("SELECT COUNT(*) FROM data_screen_state") fun totalScreenState(): Flow<Long>
+
 
 }

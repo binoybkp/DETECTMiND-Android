@@ -152,7 +152,8 @@ fun PermissionOnboardingScreen(
 
 @Composable
 private fun PermissionCard(status: PermissionStatus, onGrant: () -> Unit) {
-    val isRuntime = status.sensorPermission.kind == PermissionKind.RUNTIME
+    val isRuntime = status.sensorPermission.kind == PermissionKind.RUNTIME &&
+            status.sensorPermission.permissions.isNotEmpty()
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(16.dp),

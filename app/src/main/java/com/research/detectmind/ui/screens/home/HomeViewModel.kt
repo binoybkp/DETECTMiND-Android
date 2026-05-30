@@ -114,14 +114,14 @@ class HomeViewModel @Inject constructor(
         //        pendingCalls, totalCalls, pendingSms, totalSms, pendingLocation, totalLocation,
         //        pendingLight, totalLight, pendingScreenState, totalScreenState]
         mapOf(
-            "app_usage"     to SensorCounts(all[0],  all[1]),
-            "notifications" to SensorCounts(all[2],  all[3]),
-            "battery"       to SensorCounts(all[4],  all[5]),
-            "calls"         to SensorCounts(all[6],  all[7]),
-            "sms"           to SensorCounts(all[8],  all[9]),
-            "location"      to SensorCounts(all[10], all[11]),
-            "light"         to SensorCounts(all[12], all[13]),
-            "screen_state"  to SensorCounts(all[14], all[15])
+            "app_usage"          to SensorCounts(all[0],  all[1]),
+            "notifications"      to SensorCounts(all[2],  all[3]),
+            "battery"            to SensorCounts(all[4],  all[5]),
+            "calls"              to SensorCounts(all[6],  all[7]),
+            "sms"                to SensorCounts(all[8],  all[9]),
+            "location"           to SensorCounts(all[10], all[11]),
+            "light"              to SensorCounts(all[12], all[13]),
+            "screen_state"       to SensorCounts(all[14], all[15])
         )
     }
 
